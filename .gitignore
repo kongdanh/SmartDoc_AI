@@ -1,0 +1,87 @@
+# =========================
+
+# Python
+
+# =========================
+
+**pycache**/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+
+.venv/
+venv/
+env/
+
+# =========================
+
+# Environment variables
+
+# =========================
+
+.env
+.env.*
+
+# =========================
+
+# Logs & temp
+
+# =========================
+
+*.log
+tmp/
+tmppp/
+
+# =========================
+
+# IDE
+
+# =========================
+
+.vscode/
+.idea/
+
+# =========================
+
+# OS
+
+# =========================
+
+.DS_Store
+Thumbs.db
+
+# =========================
+
+# Project-specific
+
+# =========================
+
+# Data / test files (không cần push)
+
+data/
+pdf_uploads/
+indexes/
+
+# Nếu muốn giữ structure folder thì dùng:
+
+# data/*
+
+# !data/.gitkeep
+
+# =========================
+
+# Build / cache
+
+# =========================
+
+.cache/
+pytest_cache/
+
+# =========================
+
+# Secrets / config local
+
+# =========================
+
+settings.yaml

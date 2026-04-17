@@ -1,0 +1,109 @@
+# completion_models:
+#   default_completion_model:
+#     type: litellm
+#     model_provider: ${LLM_PROVIDER}
+#     model: "${LLM_MODEL}"
+#     api_key: "${LLM_API_KEY}"
+#     api_base: ${LLM_BASE_URL}
+#     retry:
+#       type: exponential_backoff
+#       max_retries: 5
+#       base_delay: 2.0
+#       max_delay: 30.0
+#     rate_limit:
+#       type: sliding_window
+#       period_in_seconds: 60
+#       requests_per_period: ${LLM_RPM}
+
+completion_models:
+  default_completion_model:
+    type: litellm
+    model_provider: openai # Groq dùng chuẩn openai
+    model: "openai/llama-3.3-70b-versatile" # Thêm openai/ ở đầu để LiteLLM hiểu
+    api_key: "${LLM_API_KEY}"
+    api_base: ${LLM_BASE_URL}
+    model_supports_json: true
+    temperature: 0.1
+
+embedding_models:
+  default_embedding_model:
+    type: litellm
+    model_provider: ${EMBEDDING_PROVIDER}
+    model: "${EMBEDDING_MODEL}"
+    api_key: "${EMBEDDING_API_KEY}"
+    api_base: ${EMBEDDING_BASE_URL}
+    retry:
+      type: exponential_backoff
+      max_retries: 10
+      base_delay: 5.0
+      jitter: true
+      max_delay: 60.0
+    rate_limit:
+      type: sliding_window
+      period_in_seconds: 60
+      requests_per_period: ${EMBEDDING_RPM}
+
+input:
+  type: text
+  storage:
+    type: file
+    base_dir: input
+    encoding: utf-8
+
+output:
+  type: file
+  base_dir: output
+
+cache:
+  type: json
+  storage:
+    type: file
+    base_dir: cache
+
+chunking:
+  type: tokens
+  size: 800
+  overlap: 100
+
+# extract_graph:
+#   model: default_completion_model
+#   max_gleanings: 0
+#   entity_types:
+#     - person
+#     - organization
+#     - location
+#     - event
+#     - concept
+
+extract_graph:
+  model: default_completion_model
+  max_gleanings: 1
+  # Thêm dòng này để ép AI chỉ tập trung tìm thực thể
+  strategy:
+    type: graph_intelligence
+    # Điều quan trọng nhất: Ép AI trả về JSON THÔ (Raw JSON)
+    model_supports_json: true 
+  entity_types: [person, organization, location, event, concept]
+
+summarize_descriptions:
+  model: default_completion_model
+  max_length: 500
+
+community_reports:
+  model: default_completion_model
+  max_length: 1500
+  max_input_length: 8000
+
+parallelization:
+  num_threads: 1
+
+vector_store:
+  type: lancedb
+  db_uri: output/lancedb
+  index_schema:
+    text_unit_text:
+      vector_size: ${EMBEDDING_DIMENSION}
+    entity_description:
+      vector_size: ${EMBEDDING_DIMENSION}
+    community_full_content:
+      vector_size: ${EMBEDDING_DIMENSION}
