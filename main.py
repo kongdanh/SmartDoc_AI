@@ -6,6 +6,8 @@ Supports both GraphRAG and Standard RAG for comparison.
 
 import sys
 import asyncio
+from dotenv import load_dotenv
+load_dotenv()
 
 # Ép Windows sử dụng ProactorEventLoopPolicy
 if sys.platform == 'win32':
@@ -160,7 +162,6 @@ async def search_global(req: GlobalQueryRequest):
         query=req.query,
         community_level=req.community_level,
         response_type=req.response_type,
-        dynamic_community_selection=req.dynamic_community_selection,
     )
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result["error"])
@@ -467,11 +468,11 @@ async def compare_rag(req: CompareRequest):
     # Hàm đóng gói gọi GraphRAG Local Search
     async def get_graphrag_answer():
         try:
-            res = await query_global(
+            res = await query_auto(
                 domain=req.domain, 
                 query=req.query, 
                 community_level=2, 
-                response_type="Multiple Paragraphs"
+                response_type="Direct Answer" # 🔴 ĐÃ SỬA THÀNH DIRECT ANSWER
             )
             if res.get("error"):
                 return f"GraphRAG chưa sẵn sàng cho domain '{req.domain}': {res['error']}"

@@ -179,11 +179,11 @@ chunking:
 
 extract_graph:
   model: default_completion_model
-  max_gleanings: 1
+  max_gleanings: 2
   strategy:
     type: graph_intelligence
-    model_supports_json: false
-  entity_types: [person, organization, location, event, concept]
+    model_supports_json: true
+  entity_types: [person, organization, location, event, concept, date, money, object]
 
 summarize_descriptions:
   model: default_completion_model

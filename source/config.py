@@ -31,7 +31,7 @@ class _Settings:
         # ── LLM (OpenRouter — used by GraphRAG and Standard RAG) 
         self.llm_provider: str = os.getenv("LLM_PROVIDER", "openrouter")
         self.llm_base_url: str = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
-        self.llm_model: str = os.getenv("LLM_MODEL", "nvidia/nemotron-3-super-120b-a12b:free")
+        self.llm_model: str = os.getenv("LLM_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
         self.llm_api_key: str = os.getenv("LLM_API_KEY", "")
         self.llm_rpm: int = int(os.getenv("LLM_RPM", "5"))
 

@@ -36,7 +36,7 @@ _DATA_DIR = _ROOT / "data"
 # LLM settings (OpenRouter — same as GraphRAG)
 _LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
 _LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-_LLM_MODEL = os.getenv("LLM_MODEL", "nvidia/nemotron-3-super-120b-a12b:free")
+_LLM_MODEL = os.getenv("LLM_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
 
 # Embedding (HuggingFace local)
 _EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")

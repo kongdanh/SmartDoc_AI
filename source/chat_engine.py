@@ -51,17 +51,65 @@ class ChatSession:
 class SessionManager:
     def __init__(self) -> None:
         self._sessions: Dict[str, ChatSession] = {}
+        self._storage_path = settings.index_path / "chat_sessions.json"
+        self._load_from_storage()
+
+    def _load_from_storage(self):
+        if not self._storage_path.exists():
+            return
+        try:
+            with open(self._storage_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                for sess_id, sess_data in data.items():
+                    messages = [
+                        ChatMessage(role=m["role"], content=m["content"], timestamp=m.get("timestamp", ""))
+                        for m in sess_data.get("messages", [])
+                    ]
+                    session = ChatSession(
+                        id=sess_id,
+                        domain=sess_data["domain"],
+                        title=sess_data.get("title", "New Chat"),
+                        created_at=sess_data.get("created_at", ""),
+                        messages=messages
+                    )
+                    self._sessions[sess_id] = session
+            logger.info("Loaded %d chat sessions from disk", len(self._sessions))
+        except Exception as e:
+            logger.error("Failed to load chat sessions: %s", e)
+
+    def _save_to_storage(self):
+        try:
+            data = {}
+            for sess_id, s in self._sessions.items():
+                data[sess_id] = {
+                    "domain": s.domain,
+                    "title": s.title,
+                    "created_at": s.created_at,
+                    "messages": [
+                        {"role": m.role, "content": m.content, "timestamp": m.timestamp}
+                        for m in s.messages
+                    ]
+                }
+            with open(self._storage_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error("Failed to save chat sessions: %s", e)
 
     def create(self, domain: str) -> ChatSession:
         session = ChatSession(id=str(uuid.uuid4()), domain=domain)
         self._sessions[session.id] = session
+        self._save_to_storage()
         return session
 
     def get(self, session_id: str) -> Optional[ChatSession]:
         return self._sessions.get(session_id)
 
     def delete(self, session_id: str) -> bool:
-        return self._sessions.pop(session_id, None) is not None
+        if session_id in self._sessions:
+            del self._sessions[session_id]
+            self._save_to_storage()
+            return True
+        return False
 
     def list_all(self) -> List[ChatSession]:
         return sorted(
@@ -70,12 +118,16 @@ class SessionManager:
             reverse=True,
         )
 
+    def notify_update(self):
+        self._save_to_storage()
+
 
 sessions = SessionManager()
 
 
 async def chat_stream(session: ChatSession, user_message: str) -> AsyncGenerator[str, None]:
     session.add_message("user", user_message)
+    sessions.notify_update()
 
     context = ""
     try:
@@ -150,6 +202,7 @@ async def chat_stream(session: ChatSession, user_message: str) -> AsyncGenerator
 
     if full_response:
         session.add_message("assistant", full_response)
+        sessions.notify_update()
 
 
 def _build_system_prompt(context: str) -> str:

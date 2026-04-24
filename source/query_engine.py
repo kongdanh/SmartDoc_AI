@@ -56,7 +56,7 @@ async def _run_graphrag_query(
     query: str,
     method: str = "local",
     community_level: int = 2,
-    response_type: str = "Multiple Paragraphs",
+    response_type: str = "Direct Answer", # 🔴 Đã sửa thành Direct Answer
     **kwargs,
 ) -> Dict[str, Any]:
     """
@@ -71,9 +71,6 @@ async def _run_graphrag_query(
             "error": f"Domain '{domain}' is not ready. Please index it first.",
         }
 
-    # Always use the CLI-based query. 
-    # The Python API requires manual loading of parquet files into pandas DataFrames,
-    # which is brittle across different graphrag versions.
     return await _run_graphrag_query_cli(domain, query, method, community_level, response_type)
 
 
@@ -82,7 +79,7 @@ async def _run_graphrag_query_cli(
     query: str,
     method: str = "local",
     community_level: int = 2,
-    response_type: str = "Multiple Paragraphs",
+    response_type: str = "Direct Answer", # 🔴 Đã sửa thành Direct Answer
 ) -> Dict[str, Any]:
     """Fallback: run GraphRAG query via CLI subprocess."""
     import sys
@@ -100,11 +97,11 @@ async def _run_graphrag_query_cli(
         "--root", str(domain_root),
         "--method", method,
         "--community-level", str(community_level),
+        "--response-type", response_type, # Ép CLI tuân thủ Response Type
         query,
     ]
 
     try:
-        import os
         import subprocess
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
@@ -119,20 +116,12 @@ async def _run_graphrag_query_cli(
             )
             
         process = await asyncio.to_thread(run_cli)
-        
-        # DEBUG
-        with open("debug_cli.log", "w", encoding="utf-8") as f:
-            f.write(f"CMD: {cmd}\n")
-            f.write(f"RC: {process.returncode}\n")
-            f.write(f"STDOUT: {process.stdout.decode('utf-8', 'replace')}\n")
-            f.write(f"STDERR: {process.stderr.decode('utf-8', 'replace')}\n")
 
         if process.returncode == 0:
             response_text = process.stdout.decode("utf-8", errors="replace").strip()
             return {"response": response_text, "method": method}
         else:
             error_msg = process.stderr.decode("utf-8", errors="replace")[-300:]
-            # If error_msg is somehow empty, provide a fallback so it doesn't get silenced
             if not error_msg.strip():
                 error_msg = f"GraphRAG CLI failed with code {process.returncode} but no error output."
             return {"response": "", "method": method, "error": error_msg}
@@ -151,7 +140,7 @@ async def query_local(
     domain: str,
     query: str,
     community_level: int = 2,
-    response_type: str = "Multiple Paragraphs",
+    response_type: str = "Direct Answer", # 🔴 Đã sửa
 ) -> Dict[str, Any]:
     """Local search — entity-focused, specific questions."""
     return await _run_graphrag_query(
@@ -164,7 +153,7 @@ async def query_global(
     domain: str,
     query: str,
     community_level: int = 2,
-    response_type: str = "Multiple Paragraphs",
+    response_type: str = "Direct Answer", # 🔴 Đã sửa
     dynamic_community_selection: bool = False,
 ) -> Dict[str, Any]:
     """Global search — holistic, dataset-wide questions."""
@@ -178,7 +167,7 @@ async def query_drift(
     domain: str,
     query: str,
     community_level: int = 2,
-    response_type: str = "Multiple Paragraphs",
+    response_type: str = "Direct Answer", # 🔴 Đã sửa
 ) -> Dict[str, Any]:
     """DRIFT search — starts global then drills into specifics."""
     return await _run_graphrag_query(
@@ -191,10 +180,9 @@ async def query_auto(
     domain: str,
     query: str,
     community_level: int = 2,
-    response_type: str = "Multiple Paragraphs",
+    response_type: str = "Direct Answer", # 🔴 Đã sửa
 ) -> Dict[str, Any]:
     """Auto-select query method based on query characteristics."""
-    # Heuristic: short specific queries → local, broad questions → global
     query_lower = query.lower()
     broad_indicators = ["tóm tắt", "tổng quan", "tất cả", "toàn bộ", "so sánh", "summary", "overview"]
 
@@ -223,12 +211,10 @@ async def query_direct(
         output_dir = domain_root / "output"
         artifacts_dir = output_dir / "artifacts"
 
-        # Try to find parquet files
         entity_file = None
         rel_file = None
         source_file = None
 
-        # Search in artifacts dir first, then output dir
         for search_dir in [artifacts_dir, output_dir]:
             if not search_dir.exists():
                 continue
@@ -245,7 +231,6 @@ async def query_direct(
         relationships = []
         sources = []
 
-        # Load entities
         if entity_file and entity_file.exists():
             df = pd.read_parquet(entity_file)
             query_lower = query.lower()
@@ -263,7 +248,6 @@ async def query_direct(
                         "description": str(row.get("description", ""))[:500],
                     })
 
-        # Load relationships
         if rel_file and rel_file.exists():
             df = pd.read_parquet(rel_file)
             query_lower = query.lower()
@@ -285,7 +269,6 @@ async def query_direct(
                         "weight": float(row.get("weight", 1.0)) if "weight" in row else 1.0,
                     })
 
-        # Load sources/text_units
         if source_file and source_file.exists():
             df = pd.read_parquet(source_file)
             query_lower = query.lower()
