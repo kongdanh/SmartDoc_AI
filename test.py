@@ -1,6 +1,7 @@
 # import requests
+# import os
 
-# API_KEY = "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"
+# API_KEY = os.getenv("LLM_API_KEY", "")
 # MODEL_NAME = "nousresearch/hermes-3-llama-3.1-405b:free" 
 
 # response = requests.post(
@@ -13,9 +14,11 @@
 # print("Chi tiết lỗi từ OpenRouter:", response.text)
 
 # embedding 
+import os
+
 import requests
 
-API_KEY = "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"
+API_KEY = os.getenv("LLM_API_KEY", "")
 MODEL_NAME = "openai/text-embedding-3-small" 
 
 # Đổi URL thành endpoint chuẩn /embeddings
