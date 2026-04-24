@@ -1,7 +1,19 @@
-"""KnowledgeDB - GraphRAG FastAPI Service.
+"""KnowledgeDB — SmartDoc AI FastAPI Service.
 
 Auto-indexes knowledge domains on startup and exposes query endpoints.
+Supports both GraphRAG and Standard RAG for comparison.
 """
+
+import sys
+import asyncio
+
+# Ép Windows sử dụng ProactorEventLoopPolicy
+if sys.platform == 'win32':
+    try:
+        policy = asyncio.WindowsProactorEventLoopPolicy()
+        asyncio.set_event_loop_policy(policy)
+    except Exception as e:
+        print(f"Lỗi đặt EventLoopPolicy: {e}")
 
 import asyncio
 import json
@@ -10,8 +22,8 @@ import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
 from pydantic import BaseModel
-from source.preprocessor import convert_pdf_to_txt
-from standard_rag import build_faiss_index, query_standard_rag
+from source.preprocessor import convert_pdf_to_txt, convert_docx_to_txt
+from standard_rag import build_standard_rag_index, query_standard_rag, build_faiss_index
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, UploadFile
@@ -46,6 +58,7 @@ from source.query_engine import (
     query_local,
 )
 
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -59,9 +72,11 @@ async def lifespan(app: FastAPI):
     logger.info("KnowledgeDB starting — scanning for new knowledge domains...")
     logger.info("Data directory: %s", settings.data_path)
     logger.info("Index directory: %s", settings.index_path)
+    logger.info("Upload directory: %s", settings.upload_path)
 
     settings.data_path.mkdir(parents=True, exist_ok=True)
     settings.index_path.mkdir(parents=True, exist_ok=True)
+    settings.upload_path.mkdir(parents=True, exist_ok=True)
 
     task = asyncio.create_task(_background_index())
     yield
@@ -85,8 +100,8 @@ async def _background_index():
 
 app = FastAPI(
     title="KnowledgeDB",
-    description="GraphRAG-powered knowledge base API for AI agents",
-    version="1.0.0",
+    description="SmartDoc AI — GraphRAG & Standard RAG knowledge base API",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -99,6 +114,13 @@ app.add_middleware(
 )
 
 app.include_router(dashboard_router)
+
+
+# ─── Health ─────────────────────────────────────────────────────
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "SmartDoc AI"}
 
 
 # --- Domain Endpoints ---
@@ -288,6 +310,10 @@ async def reindex_domain(domain: str):
         await _index_domain(domain, registry, force=True)
 
     asyncio.create_task(_do_reindex())
+
+    # Also rebuild Standard RAG index in background
+    asyncio.get_event_loop().run_in_executor(None, build_standard_rag_index, domain)
+
     return ReindexResponse(message=f"Re-indexing started for domain '{domain}'", domains=[domain])
 
 
@@ -299,6 +325,11 @@ async def reindex_all():
         raise HTTPException(status_code=404, detail="No domains found in data directory")
 
     asyncio.create_task(scan_and_index_all(force=True))
+
+    # Also rebuild Standard RAG index for all domains
+    for d in domains:
+        asyncio.get_event_loop().run_in_executor(None, build_standard_rag_index, d)
+
     return ReindexResponse(message="Re-indexing started for all domains", domains=domains)
 
 
@@ -324,7 +355,7 @@ async def list_domain_files(domain: str):
 
 @app.post("/domains/{domain}/upload")
 async def upload_files(domain: str, files: list[UploadFile]):
-    """Upload files to a domain's data directory and build FAISS index."""
+    """Upload files to a domain's data directory and build Standard RAG index."""
     domain_data_dir = settings.data_path / domain
     domain_data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -334,28 +365,71 @@ async def upload_files(domain: str, files: list[UploadFile]):
             continue
             
         safe_name = Path(f.filename).name
+        suffix = Path(safe_name).suffix.lower()
+
+        # Save to domain data dir
         dest = domain_data_dir / safe_name
-        
-        # Lưu file gốc (PDF hoặc TXT)
         content = await f.read()
         dest.write_bytes(content)
-        
-        # Nếu là PDF, chuyển sang TXT
-        if dest.suffix.lower() == ".pdf":
+
+        # Also save to resources/uploads/{type}/ for organized storage
+        if suffix == ".pdf":
+            upload_type_dir = settings.upload_path / "pdf"
+        elif suffix in (".docx", ".doc"):
+            upload_type_dir = settings.upload_path / "docx"
+        elif suffix == ".txt":
+            upload_type_dir = settings.upload_path / "txt"
+        else:
+            upload_type_dir = settings.upload_path / "txt"
+
+        upload_type_dir.mkdir(parents=True, exist_ok=True)
+        (upload_type_dir / safe_name).write_bytes(content)
+
+        # Convert PDF/DOCX to TXT for GraphRAG (needs text input)
+        if suffix == ".pdf":
             txt_dest = dest.with_suffix(".txt")
-            txt_file = convert_pdf_to_txt(dest, txt_dest)
-            
-            # Đẩy file txt vừa tạo vào FAISS RAG truyền thống
-            if txt_file and txt_file.exists():
-                build_faiss_index(txt_file)
-                
-        # Nếu là file TXT sẵn, nạp luôn vào FAISS
-        elif dest.suffix.lower() == ".txt":
-            build_faiss_index(dest)
-            
+            convert_pdf_to_txt(dest, txt_dest)
+        elif suffix in (".docx", ".doc"):
+            txt_dest = dest.with_suffix(".txt")
+            convert_docx_to_txt(dest, txt_dest)
+
         uploaded += 1
 
-    return {"domain": domain, "uploaded": uploaded, "message": "Đã lưu file và lập chỉ mục cho Standard RAG. Hãy chạy Reindex cho GraphRAG."}
+    # Build Standard RAG index for this domain in background
+    if uploaded > 0:
+        asyncio.get_event_loop().run_in_executor(None, build_standard_rag_index, domain)
+
+    return {
+        "domain": domain,
+        "uploaded": uploaded,
+        "message": "Đã lưu file và lập chỉ mục cho Standard RAG. Hãy chạy Reindex cho GraphRAG."
+    }
+
+
+@app.delete("/domains/{domain}/files/{filename:path}")
+async def delete_domain_file(domain: str, filename: str):
+    """Delete a single file from a domain's data directory."""
+    domain_data_dir = settings.data_path / domain
+    file_path = domain_data_dir / filename
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail=f"File '{filename}' not found in domain '{domain}'")
+
+    # Safety check: prevent path traversal
+    try:
+        file_path.resolve().relative_to(domain_data_dir.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid file path")
+
+    file_path.unlink()
+    
+    # Also delete generated .txt if original was pdf/docx
+    if file_path.suffix.lower() in (".pdf", ".docx", ".doc"):
+        txt_companion = file_path.with_suffix(".txt")
+        if txt_companion.exists():
+            txt_companion.unlink()
+
+    return {"message": f"File '{filename}' deleted from domain '{domain}'"}
 
 
 @app.delete("/domains/{domain}")
@@ -377,9 +451,14 @@ async def delete_domain(domain: str):
 
     return {"message": f"Domain '{domain}' deleted"}
 
+
+# --- Compare RAG Endpoint ---
+
+
 class CompareRequest(BaseModel):
     query: str
     domain: str = "test1"
+
 
 @app.post("/api/compare-rag")
 async def compare_rag(req: CompareRequest):
@@ -388,12 +467,14 @@ async def compare_rag(req: CompareRequest):
     # Hàm đóng gói gọi GraphRAG Local Search
     async def get_graphrag_answer():
         try:
-            res = await query_local(
+            res = await query_global(
                 domain=req.domain, 
                 query=req.query, 
                 community_level=2, 
                 response_type="Multiple Paragraphs"
             )
+            if res.get("error"):
+                return f"GraphRAG chưa sẵn sàng cho domain '{req.domain}': {res['error']}"
             return res.get("response", "Không tìm thấy câu trả lời từ GraphRAG.")
         except Exception as e:
             return f"Lỗi GraphRAG: {str(e)}"
@@ -402,7 +483,7 @@ async def compare_rag(req: CompareRequest):
     async def get_standard_rag_answer():
         try:
             # Chạy hàm đồng bộ trong threadpool để không block FastAPI
-            return await asyncio.to_thread(query_standard_rag, req.query)
+            return await asyncio.to_thread(query_standard_rag, req.query, req.domain)
         except Exception as e:
             return f"Lỗi Standard RAG: {str(e)}"
 
@@ -418,11 +499,33 @@ async def compare_rag(req: CompareRequest):
         "graph_rag_answer": graph_res
     }
 
+
+# --- Standard RAG Specific Endpoints ---
+
+
+@app.post("/api/standard-rag/index/{domain}")
+async def index_standard_rag(domain: str):
+    """Build/rebuild Standard RAG index for a domain."""
+    data_dir = settings.data_path / domain
+    if not data_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"Domain '{domain}' not found")
+
+    result = await asyncio.to_thread(build_standard_rag_index, domain)
+    return result
+
+
+@app.post("/api/standard-rag/query")
+async def standard_rag_query(req: CompareRequest):
+    """Query Standard RAG only."""
+    answer = await asyncio.to_thread(query_standard_rag, req.query, req.domain)
+    return {"question": req.query, "answer": answer, "domain": req.domain}
+
+
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
         port=settings.server_port,
         reload=True,
-        reload_excludes=["indexes/*", "data/*", "*.pyc"],
+        reload_excludes=["indexes/*", "data/*", "*.pyc", "db/*"],
     )

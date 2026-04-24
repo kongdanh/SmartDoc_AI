@@ -1,37 +1,29 @@
-# completion_models:
-#   default_completion_model:
-#     type: litellm
-#     model_provider: ${LLM_PROVIDER}
-#     model: "${LLM_MODEL}"
-#     api_key: "${LLM_API_KEY}"
-#     api_base: ${LLM_BASE_URL}
-#     retry:
-#       type: exponential_backoff
-#       max_retries: 5
-#       base_delay: 2.0
-#       max_delay: 30.0
-#     rate_limit:
-#       type: sliding_window
-#       period_in_seconds: 60
-#       requests_per_period: ${LLM_RPM}
+# ═══════════════════════════════════════════════════════════
+# SmartDoc AI — GraphRAG Settings Template
+# LLM: OpenRouter (Free) | Embedding: HuggingFace (Local)
+# ═══════════════════════════════════════════════════════════
 
 completion_models:
   default_completion_model:
-    type: litellm
-    model_provider: openai # Groq dùng chuẩn openai
-    model: "openai/llama-3.3-70b-versatile" # Thêm openai/ ở đầu để LiteLLM hiểu
-    api_key: "${LLM_API_KEY}"
-    api_base: ${LLM_BASE_URL}
-    model_supports_json: true
-    temperature: 0.1
+    type: litellm # Đổi từ openai sang litellm
+    model_provider: openrouter
+    model: "meta-llama/llama-3.3-70b-instruct"
+    api_key: "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"
+    api_base: "https://openrouter.ai/api/v1" # Bắt buộc phải có
+    model_supports_json: false
+    # Thêm các dòng này để litellm nhận diện đúng
+    model_list: 
+      - model_name: "meta-llama/llama-3.3-70b-instruct"
+        litellm_params:
+          model: "openrouter/meta-llama/llama-3.3-70b-instruct"
 
 embedding_models:
   default_embedding_model:
     type: litellm
-    model_provider: ${EMBEDDING_PROVIDER}
-    model: "${EMBEDDING_MODEL}"
-    api_key: "${EMBEDDING_API_KEY}"
-    api_base: ${EMBEDDING_BASE_URL}
+    api_base: "https://openrouter.ai/api/v1"
+    model: "openai/text-embedding-3-small"
+    api_key: "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"
+    model_provider: openrouter
     retry:
       type: exponential_backoff
       max_retries: 10
@@ -41,7 +33,7 @@ embedding_models:
     rate_limit:
       type: sliding_window
       period_in_seconds: 60
-      requests_per_period: ${EMBEDDING_RPM}
+      requests_per_period: 30
 
 input:
   type: text
@@ -65,24 +57,13 @@ chunking:
   size: 800
   overlap: 100
 
-# extract_graph:
-#   model: default_completion_model
-#   max_gleanings: 0
-#   entity_types:
-#     - person
-#     - organization
-#     - location
-#     - event
-#     - concept
-
 extract_graph:
   model: default_completion_model
   max_gleanings: 1
-  # Thêm dòng này để ép AI chỉ tập trung tìm thực thể
   strategy:
     type: graph_intelligence
-    # Điều quan trọng nhất: Ép AI trả về JSON THÔ (Raw JSON)
-    model_supports_json: true 
+    # QUAN TRỌNG: false để dùng text-based extraction thay vì JSON mode
+    model_supports_json: false
   entity_types: [person, organization, location, event, concept]
 
 summarize_descriptions:

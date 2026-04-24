@@ -1,10 +1,11 @@
-from __future__ import annotations
 """
 SmartDoc AI — GraphRAG Indexer.
 
 Discovers domains, runs Microsoft GraphRAG indexing pipeline,
 and tracks indexing status.
 """
+
+from __future__ import annotations
 
 import asyncio
 import hashlib
@@ -128,7 +129,6 @@ def _get_fallback_settings_yaml() -> str:
 completion_models:
   default_completion_model:
     type: litellm
-    model_provider: openrouter
     model: "openrouter/${LLM_MODEL}"
     api_key: "${LLM_API_KEY}"
     model_supports_json: false
@@ -145,7 +145,7 @@ completion_models:
 
 embedding_models:
   default_embedding_model:
-    type: openrouter
+    type: litellm
     model_provider: huggingface
     model: "huggingface/${EMBEDDING_MODEL}"
     retry:
@@ -253,17 +253,14 @@ async def index_domain(
 
         logger.info("Running: %s", " ".join(cmd))
 
-        def run_indexer():
-            return subprocess.run(
-                cmd,
-                capture_output=True,
-                cwd=str(domain_index_dir)
-            )
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(domain_index_dir),
+        )
 
-        process = await asyncio.to_thread(run_indexer)
-
-        stdout = process.stdout
-        stderr = process.stderr
+        stdout, stderr = await process.communicate()
 
         if process.returncode == 0:
             _indexing_status[domain] = "ready"
@@ -309,6 +306,7 @@ async def scan_and_index_all(force: bool = False) -> List[Dict[str, Any]]:
     results = []
 
     for domain in domains:
+        # Check if already indexed (unless force)
         if not force:
             output_dir = settings.index_path / domain / "output"
             if output_dir.exists() and any(output_dir.iterdir()):

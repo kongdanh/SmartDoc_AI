@@ -28,7 +28,7 @@ class _Settings:
         # ── Server ──────────────────────────────────────────────
         self.server_port: int = int(os.getenv("SERVER_PORT", "8001"))
 
-        # ── LLM (OpenRouter — used by GraphRAG and Standard RAG) 
+        # ── LLM (OpenRouter — used by GraphRAG) ────────────────
         self.llm_provider: str = os.getenv("LLM_PROVIDER", "openrouter")
         self.llm_base_url: str = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
         self.llm_model: str = os.getenv("LLM_MODEL", "nvidia/nemotron-3-super-120b-a12b:free")

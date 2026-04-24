@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ChatMessage:
-    role: str
+    role: str  # "user" or "assistant"
     content: str
     timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
 
@@ -43,12 +43,15 @@ class ChatSession:
     def add_message(self, role: str, content: str) -> ChatMessage:
         msg = ChatMessage(role=role, content=content)
         self.messages.append(msg)
+        # Auto-set title from first user message
         if role == "user" and self.title == "New Chat":
             self.title = content[:50] + ("..." if len(content) > 50 else "")
         return msg
 
 
 class SessionManager:
+    """In-memory chat session manager."""
+
     def __init__(self) -> None:
         self._sessions: Dict[str, ChatSession] = {}
 
@@ -71,15 +74,26 @@ class SessionManager:
         )
 
 
+# Global session manager
 sessions = SessionManager()
 
 
 async def chat_stream(session: ChatSession, user_message: str) -> AsyncGenerator[str, None]:
+    """
+    Stream a chat response token by token.
+
+    1. Get context from GraphRAG local search
+    2. Build prompt with conversation history + context
+    3. Stream response from LLM via OpenRouter
+    """
+    # Record user message
     session.add_message("user", user_message)
 
+    # 1. Get context from GraphRAG
     context = ""
     try:
         from source.query_engine import query_local, is_domain_ready
+
         if is_domain_ready(session.domain):
             result = await query_local(
                 domain=session.domain,
@@ -92,10 +106,13 @@ async def chat_stream(session: ChatSession, user_message: str) -> AsyncGenerator
     except Exception as e:
         logger.warning("Failed to get GraphRAG context: %s", e)
 
+    # 2. Build prompt
     system_prompt = _build_system_prompt(context)
     messages = _build_messages(session, system_prompt)
 
+    # 3. Stream response from LLM
     full_response = ""
+
     try:
         import httpx
 
@@ -140,19 +157,23 @@ async def chat_stream(session: ChatSession, user_message: str) -> AsyncGenerator
                         continue
 
     except ImportError:
+        # Fallback: non-streaming with requests
         full_response = await _fallback_generate(messages)
         yield full_response
+
     except Exception as e:
         logger.exception("Chat stream error")
         error_msg = f"Xin lỗi, đã xảy ra lỗi: {str(e)}"
         full_response = error_msg
         yield error_msg
 
+    # Record assistant response
     if full_response:
         session.add_message("assistant", full_response)
 
 
 def _build_system_prompt(context: str) -> str:
+    """Build system prompt with optional RAG context."""
     base = (
         "Bạn là SmartDoc AI — trợ lý thông minh giúp người dùng truy vấn và tìm hiểu "
         "thông tin từ các tài liệu đã được đưa vào hệ thống. "
@@ -170,19 +191,27 @@ def _build_system_prompt(context: str) -> str:
             "\n\nHiện tại không có context từ Knowledge Base. "
             "Hãy trả lời dựa trên kiến thức chung và gợi ý người dùng upload tài liệu nếu cần."
         )
+
     return base
 
 
 def _build_messages(session: ChatSession, system_prompt: str) -> List[Dict[str, str]]:
+    """Build messages list for LLM API call."""
     messages = [{"role": "system", "content": system_prompt}]
-    for msg in session.messages[-10:]:
+
+    # Include recent conversation history (last 10 messages)
+    recent = session.messages[-10:]
+    for msg in recent:
         messages.append({"role": msg.role, "content": msg.content})
+
     return messages
 
 
 async def _fallback_generate(messages: List[Dict[str, str]]) -> str:
+    """Fallback: non-streaming generation using requests."""
     try:
         import requests as req
+
         api_key = settings.llm_api_key
         base_url = settings.llm_base_url
         model = settings.llm_model
@@ -200,8 +229,10 @@ async def _fallback_generate(messages: List[Dict[str, str]]) -> str:
         )
 
         if response.status_code == 200:
-            return response.json()["choices"][0]["message"]["content"]
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
         else:
             return f"Lỗi API ({response.status_code}): {response.text[:200]}"
+
     except Exception as e:
         return f"Lỗi kết nối LLM: {str(e)}"

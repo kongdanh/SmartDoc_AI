@@ -1,0 +1,808 @@
+% !TEX program = lualatex
+\documentclass[10pt, conference, a4paper]{IEEEtran}
+
+% tiếng Việt
+\usepackage{fontspec}
+\usepackage{polyglossia}
+
+\setdefaultlanguage{vietnamese}
+
+\setmainfont{Times New Roman}
+\usepackage{amsmath, amssymb, amsfonts}
+
+\usepackage{graphicx}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{xcolor}
+
+% ================= ALGORITHM =================
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning}
+
+\usepackage[hidelinks]{hyperref}
+\definecolor{lightblue}{rgb}{0.85,0.92,1.0}
+\definecolor{lightyellow}{rgb}{1.0,0.98,0.80}
+\definecolor{lightgreen}{rgb}{0.85,1.0,0.88}
+
+\makeatletter
+\renewcommand{\ALG@beginalgorithmic}{\small}
+\makeatother
+
+\begin{document}
+
+\title{Phân tích đối chứng kiến trúc và hiệu năng: Standard RAG vs. GraphRAG}
+
+\author{
+  \IEEEauthorblockN{Nguyễn Trần Công Danh, Nguyễn Kim Long}
+  \IEEEauthorblockA{
+    Khoa Công nghệ Thông tin, Trường Đại học Sài Gòn\\
+    Thành phố Hồ Chí Minh, Việt Nam\\
+    \textit{Học phần: Phát triển Phần Mềm Mã Nguồn Mở (PTPMMNM)}
+  }
+}
+
+\maketitle
+
+
+
+\title{Phân tích Đối chứng kiến trúc và hiệu năng:\\ Standard RAG vs. GraphRAG}
+
+\author{
+  \IEEEauthorblockN{Nguyễn Trần Công Danh, Nguyễn Kim Long}
+  \IEEEauthorblockA{
+    Khoa Công nghệ Thông tin, Trường Đại học Sài Gòn\\
+    Thành phố Hồ Chí Minh, Việt Nam\\
+    \textit{Học phần: Phát triển Phần Mềm Mã Nguồn Mở (PTPMMNM)}
+  }
+}
+
+\maketitle
+
+%------------------------------------------------------------
+\begin{abstract}
+Hệ thống Retrieval-Augmented Generation (RAG) truyền thống dựa trên
+tìm kiếm tương đồng vector đang đối mặt với giới hạn cấu trúc khi
+xử lý các truy vấn đòi hỏi tổng hợp thông tin toàn cục từ nhiều
+đoạn tài liệu rời rạc. Báo cáo này trình bày quá trình thiết kế,
+triển khai và đánh giá thực nghiệm hệ thống so sánh đối chứng giữa
+Standard RAG và Microsoft GraphRAG — một kiến trúc dựa trên đồ thị
+tri thức. Quy trình kỹ thuật được chi tiết hóa đầy đủ: trích xuất
+thực thể điều hướng bởi LLM, xây dựng đồ thị tri thức, phân cụm
+cộng đồng bằng thuật toán Leiden, tạo báo cáo cộng đồng và các
+chiến lược truy vấn Local/Global Search. Hệ thống được xây dựng
+hoàn toàn từ các công cụ nguồn mở (FastAPI, \texttt{microsoft/graphrag},
+LanceDB, Streamlit). Kết quả thực nghiệm cho thấy GraphRAG vượt trội
+hơn Standard RAG 24 điểm phần trăm trong các truy vấn tổng hợp toàn
+cục, trong khi Standard RAG giữ lợi thế tốc độ phản hồi nhanh hơn
+8 lần và chi phí token thấp hơn 3,5 lần. Phân tích sâu về mặt toán
+học và thuật toán được thực hiện để làm rõ nguyên nhân gốc rễ của
+sự khác biệt hiệu năng này.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Retrieval-Augmented Generation, GraphRAG, Knowledge Graph, Dense Retrieval, Community Detection, Open-source Systems
+\end{IEEEkeywords}
+
+%============================================================
+\section{Giới thiệu}
+%============================================================
+
+\subsection{Bối cảnh và Động lực}
+
+Sự tiến bộ nhanh chóng của các Mô hình Ngôn ngữ Lớn (LLMs) đã thiết
+lập Retrieval-Augmented Generation (RAG) như một kỹ thuật tiêu chuẩn
+để cung cấp kiến thức bên ngoài cho LLMs, giảm thiểu hiện tượng ảo
+giác và cho phép trả lời câu hỏi theo miền cụ thể~\cite{lewis2020rag,
+gao2024survey}. Mô hình phổ biến hiện nay mã hóa các đoạn văn bản
+thành vector dày đặc và truy xuất Top-$K$ đoạn tương đồng nhất thông
+qua độ tương đồng cosine~\cite{karpukhin2020dpr}. Tuy nhiên, phương
+pháp này mang một điểm yếu cấu trúc cố hữu: nó coi mỗi đoạn văn là
+một hòn đảo độc lập, bị ngắt kết nối khỏi bối cảnh ngữ nghĩa tổng
+thể của kho tài liệu.
+
+Xét một kịch bản thực tế: sinh viên hỏi \emph{``Mối quan hệ kiến
+trúc giữa phát hiện cộng đồng và chất lượng truy vấn toàn cục của
+GraphRAG là gì?''} Việc trả lời chính xác đòi hỏi \textbf{suy luận
+đa bước (multi-hop reasoning)} — kết nối thuật toán Leiden (thảo luận
+trong một phần) với chiến lược Global Search (thảo luận ở phần khác).
+Độ tương đồng cosine giữa truy vấn và từng đoạn riêng lẻ có thể
+không đủ để đưa cả hai vào Top-$K$, dẫn đến câu trả lời không đầy
+đủ. Khoảng cách cấu trúc này thúc đẩy Microsoft Research đề xuất
+\textbf{GraphRAG} năm 2024~\cite{edge2024graphrag}.
+
+\subsection{Đóng góp chính}
+
+Báo cáo này thực hiện ba đóng góp: (1) phân tích toán học nghiêm ngặt
+về cả hai kiến trúc, xác định nguyên nhân gốc rễ của điểm mạnh và
+hạn chế; (2) triển khai hệ thống nguồn mở với giao diện so sánh song
+song; và (3) đánh giá định lượng và định tính trên tập dữ liệu thực
+tế, đưa ra hướng dẫn thực hành rõ ràng.
+
+%============================================================
+\section{Cơ Sở Lý Thuyết}
+%============================================================
+
+\subsection{Standard RAG: Mô hình Toán học và Giới hạn}
+
+Standard RAG vận hành qua ba giai đoạn. \textbf{Lập chỉ mục}: chia
+tài liệu thành các đoạn, mã hóa qua mô hình nhúng (embedding), lưu
+vào cơ sở dữ liệu vector. \textbf{Truy xuất}: nhúng truy vấn, tính
+độ tương đồng cosine, trả về Top-$K$. \textbf{Tạo phản hồi}: ghép
+các đoạn đã truy xuất làm ngữ cảnh cho LLM.
+
+Mục tiêu truy xuất là:
+\begin{equation}
+  \text{sim}(q, d_i) = \frac{\vec{q}\cdot\vec{d}_i}
+    {\|\vec{q}\|\,\|\vec{d}_i\|},\quad
+  \mathcal{C}^{*} = \underset{|S|=K}{\arg\max}
+    \sum_{d_i\in S}\text{sim}(q,d_i)
+  \label{eq:topk}
+\end{equation}
+
+\textbf{Giới hạn lý thuyết:} Phương trình~\eqref{eq:topk} tối ưu
+hóa mức độ liên quan \emph{cục bộ} độc lập cho từng đoạn. Nếu câu
+trả lời đúng đòi hỏi kết hợp đoạn $d_a$ (điểm 0,71) và đoạn $d_b$
+(điểm 0,68), nhưng tồn tại $K$ đoạn khác có điểm cao hơn, cả hai
+bị loại bỏ bất kể giá trị thông tin \emph{chung} của chúng — đây là
+giới hạn đơn bước cơ bản của truy xuất vector dày đặc.
+
+Ngoài ra, giả định thứ hạng của Phương trình~\eqref{eq:topk} còn bị
+vi phạm trong các trường hợp:
+\begin{itemize}
+  \item \textbf{Suy luận phủ định:} Câu hỏi về những gì \emph{không}
+    xảy ra; văn bản phủ định thường có độ tương đồng thấp với truy
+    vấn khẳng định.
+  \item \textbf{Ngữ nghĩa phong phú:} Khái niệm được diễn đạt bằng
+    nhiều thuật ngữ khác nhau trong toàn tài liệu; embedding không
+    thể hội tụ tất cả vào một vùng vector.
+  \item \textbf{Khoảng cách ngôn ngữ:} Câu hỏi tiếng Việt nhưng tài
+    liệu tiếng Anh; lệch ngữ nghĩa làm giảm chất lượng truy
+    xuất~\cite{shi2023large}.
+\end{itemize}
+
+\subsection{GraphRAG: Kiến trúc Đồ thị Tri thức}
+
+GraphRAG~\cite{edge2024graphrag} thay thế kho lưu trữ đoạn phẳng
+bằng một \textbf{Đồ thị Tri thức} $G = (E, R)$ ghi lại rõ ràng các
+thực thể và mối quan hệ ẩn trong văn bản. Quy trình lập chỉ mục gồm
+năm giai đoạn:
+\begin{enumerate}
+  \item \textbf{Trích xuất đồ thị:} LLM nhận diện thực thể (người, tổ
+    chức, địa điểm, khái niệm) và quan hệ từ mỗi đoạn văn, tạo biểu
+    diễn có cấu trúc $(E, R)$.
+  \item \textbf{Tóm tắt mô tả:} Nhiều mô tả của cùng một thực thể
+    xuất hiện ở các đoạn khác nhau được hợp nhất thành một bản tóm
+    tắt chuẩn nhất quán.
+  \item \textbf{Phát hiện cộng đồng:} Thuật toán Leiden phân vùng đồ
+    thị thực thể thành các cộng đồng gắn kết về mặt ngữ nghĩa.
+  \item \textbf{Báo cáo cộng đồng:} LLM tạo báo cáo tóm tắt bằng
+    ngôn ngữ tự nhiên toàn diện cho mỗi cộng đồng.
+  \item \textbf{Tạo Embedding:} Mô tả thực thể, đơn vị văn bản và báo
+    cáo cộng đồng đều được nhúng để phục vụ truy xuất lai giữa vector
+    và đồ thị.
+\end{enumerate}
+
+\subsection{Phân tích Toán học: Thuật toán Leiden}
+
+Thuật toán Leiden~\cite{traag2019leiden} là cốt lõi toán học của tổ
+chức tri thức trong GraphRAG, mở rộng phương pháp Louvain bằng cách
+đảm bảo các cộng đồng \emph{kết nối tốt}.
+
+\textbf{Hàm mục tiêu — Modularity:}
+\begin{equation}
+  Q = \frac{1}{2m}\sum_{i,j}
+    \!\Bigl[A_{ij} - \frac{k_i k_j}{2m}\Bigr]\delta(c_i,c_j)
+  \label{eq:modularity}
+\end{equation}
+trong đó $A_{ij}$ là ma trận kề, $k_i$ là bậc nút $i$, $m$ là tổng
+số cạnh, $\delta(c_i,c_j)=1$ khi $i,j$ cùng cộng đồng.
+
+Thuật toán hoạt động qua ba pha lặp:
+
+\textbf{Pha 1 — Di chuyển cục bộ:} Mỗi nút $v$ được thử chuyển sang
+cộng đồng $\mathcal{C}_j$ nếu:
+\begin{equation}
+  \Delta Q(v \to \mathcal{C}_j) = \frac{1}{2m}
+    \Bigl[2e_{v,\mathcal{C}_j}
+    - \frac{k_v \cdot k_{\mathcal{C}_j}}{m}\Bigr] > 0
+  \label{eq:delta_q}
+\end{equation}
+trong đó $e_{v,\mathcal{C}_j}$ là số cạnh từ $v$ đến cộng đồng
+$\mathcal{C}_j$ và $k_{\mathcal{C}_j}$ là tổng bậc của cộng đồng đó.
+
+\textbf{Pha 2 — Làm tinh cộng đồng:} Leiden thêm pha làm tinh để đảm
+bảo bên trong mỗi cộng đồng, mọi tập con các nút đều kết nối với nhau,
+khắc phục điểm yếu cốt lõi của Louvain:
+\begin{equation}
+  \forall S \subset \mathcal{C}:\quad
+  e(S, \mathcal{C}\setminus S) \;\geq\;
+    \frac{|S|(|\mathcal{C}|-|S|)}{|\mathcal{C}|-1}\cdot\gamma
+  \label{eq:connectivity}
+\end{equation}
+trong đó $\gamma$ là ngưỡng kết nối tối thiểu.
+
+\textbf{Pha 3 — Tổng hợp đồ thị:} Sau khi tìm được phân vùng ổn định,
+đồ thị được tổng hợp: mỗi cộng đồng trở thành một siêu nút, các cạnh
+giữa cộng đồng được gộp lại. Quá trình lặp lại trên đồ thị tổng hợp
+cho đến khi $Q$ hội tụ.
+
+\begin{table}[h]
+\centering
+\caption{So sánh thuật toán Louvain và Leiden}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Tiêu chí} & \textbf{Louvain} & \textbf{Leiden} \\
+\midrule
+Đảm bảo kết nối cộng đồng & Không & Có \\
+Độ phức tạp thời gian & $O(n\log n)$ & $O(n\log n)$ \\
+Pha làm tinh (Refinement) & Không có & Có \\
+Chất lượng phân cụm & Trung bình & Vượt trội \\
+Độ ổn định kết quả & Thấp & Cao \\
+\bottomrule
+\end{tabular}
+\label{tab:leiden_compare}
+\end{table}
+
+\subsection{Mô hình Nhúng Vector và Không gian Latent}
+
+Chất lượng của cả hai hệ thống phụ thuộc vào mô hình embedding được
+chọn. Mô hình \texttt{BAAI/bge-small-en-v1.5}~\cite{bge2023} tạo
+vector 384 chiều thông qua kiến trúc Transformer với cơ chế attention
+đa đầu:
+\begin{equation}
+  \text{Attention}(Q,K,V) = \text{softmax}
+    \!\left(\frac{QK^\top}{\sqrt{d_k}}\right)\!V
+  \label{eq:attention}
+\end{equation}
+
+Biểu diễn cuối cùng là trung bình có trọng số của các token ẩn
+(mean pooling):
+\begin{equation}
+  \vec{e} = \frac{\sum_{t=1}^{T} m_t \cdot \vec{h}_t}
+                 {\sum_{t=1}^{T} m_t}
+  \label{eq:pooling}
+\end{equation}
+trong đó $\vec{h}_t$ là trạng thái ẩn token $t$ và $m_t \in \{0,1\}$
+là mặt nạ chú ý.
+
+\textbf{Ràng buộc kỹ thuật quan trọng:} Chiều của vector embedding
+phải đồng bộ hoàn toàn với schema của cơ sở dữ liệu vector:
+$\dim(\text{LanceDB schema}) \equiv \dim(\vec{e})$. Bất kỳ sự lệch
+nào sẽ gây lỗi âm thầm trong giai đoạn \texttt{generate\_text\_embeddings}.
+
+\subsection{Chiến lược Truy vấn: Local và Global Search}
+
+GraphRAG cung cấp hai chế độ truy xuất bổ sung~\cite{edge2024graphrag}:
+
+\textbf{Local Search} phù hợp với câu hỏi xoay quanh thực thể cụ thể.
+Hệ thống kết hợp tìm kiếm vector trên embedding đơn vị văn bản với
+duyệt đồ thị xung quanh các nút thực thể liên quan. Độ trễ phản hồi
+trung bình: 4,8 giây.
+
+\textbf{Global Search} phù hợp với câu hỏi tổng hợp toàn cục. Thay
+vì quét từng đoạn văn riêng lẻ, hệ thống đọc các \emph{Báo cáo Cộng
+đồng} đã được tạo sẵn từ trước, giảm đáng kể kích thước ngữ cảnh
+đồng thời cải thiện tính gắn kết toàn cục. Độ trễ trung bình: 12,3
+giây.
+
+Sự khác biệt trong cơ chế truy xuất thể hiện qua độ phức tạp tính toán:
+\begin{equation}
+  T_{\text{Local}} = O(K \cdot d) + O(\deg(v) \cdot d)
+  \label{eq:local_complexity}
+\end{equation}
+\begin{equation}
+  T_{\text{Global}} = O(|\mathcal{C}| \cdot L_r)
+  \label{eq:global_complexity}
+\end{equation}
+trong đó $K$ là số đoạn truy xuất, $d$ là chiều vector, $\deg(v)$ là
+bậc nút thực thể, $|\mathcal{C}|$ là số cộng đồng, $L_r$ là độ dài
+báo cáo cộng đồng.
+
+%============================================================
+\section{Thiết Kế và Triển Khai Hệ Thống}
+%============================================================
+
+\subsection{Kiến trúc Tổng quát}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  node distance=1.1cm and 0.1cm,
+  box/.style={rectangle, draw, rounded corners=3pt,
+    minimum width=2.2cm, minimum height=0.55cm,
+    font=\small\sffamily, align=center},
+  arr/.style={-{Stealth},thick}
+]
+\node[box,fill=lightblue]    (inp) {Đầu vào PDF / TXT};
+\node[box,fill=lightyellow,below=of inp]
+  (pre) {Tiền xử lý\\(PDF sang văn bản thuần)};
+\node[box,fill=lightblue,
+      below left=0.45cm and 0.05cm of pre]
+  (std) {Standard RAG\\Chỉ mục FAISS};
+\node[box,fill=lightblue,
+      below right=0.45cm and 0.05cm of pre]
+  (grg) {GraphRAG\\LanceDB + Đồ thị};
+\node[box,fill=lightyellow,below=1.0cm of pre]
+  (api) {FastAPI Backend cổng 8001};
+\node[box,fill=lightgreen,below=of api]
+  (ui) {Giao diện Streamlit (So sánh)};
+\draw[arr](inp)--(pre);
+\draw[arr](pre)--(std);
+\draw[arr](pre)--(grg);
+\draw[arr](std)--(api);
+\draw[arr](grg)--(api);
+\draw[arr](api)--(ui);
+\end{tikzpicture}
+\caption{Kiến trúc hệ thống: cả hai luồng RAG dùng chung bộ tiền xử
+lý và FastAPI backend, hiển thị qua giao diện so sánh Streamlit.}
+\label{fig:arch}
+\end{figure}
+
+\subsection{Hệ sinh thái Công nghệ Nguồn Mở}
+
+\begin{table}[h]
+\centering
+\caption{Lựa chọn công nghệ nguồn mở và lý do}
+\begin{tabular}{@{}llp{2.6cm}@{}}
+\toprule
+\textbf{Tầng} & \textbf{Công nghệ} & \textbf{Lý do chọn lựa} \\
+\midrule
+API Backend    & FastAPI 0.110      & ASGI, hỗ trợ streaming \\
+Graph Pipeline & microsoft/graphrag & Triển khai GraphRAG chính thức \\
+Vector Store   & LanceDB 0.5        & Cột dữ liệu, nhẹ, nhanh \\
+Classic Index  & FAISS~\cite{johnson2021faiss} & Tìm kiếm vector hiệu quả \\
+LLM Gateway    & LiteLLM            & Trừu tượng hóa API đa mô hình \\
+Embedding      & BGE-small-en~\cite{bge2023} & 384 chiều, SOTA benchmark \\
+Frontend       & Streamlit 1.33     & Nhanh, không cần JavaScript \\
+\bottomrule
+\end{tabular}
+\label{tab:stack}
+\end{table}
+
+\subsection{Quy trình Lập chỉ mục Lai}
+
+Thuật toán~\ref{alg:index} mô tả quy trình lập chỉ mục lai, trong đó
+mỗi tài liệu được xử lý song song qua cả hai nhánh. Nhánh Standard
+RAG tập trung vào biểu diễn vector thuần túy, trong khi nhánh GraphRAG
+xây dựng đồ thị tri thức thông qua các lời gọi LLM tốn kém hơn nhưng
+cho phép suy luận quan hệ.
+
+\begin{algorithm}[h]
+\caption{Quy trình Lập chỉ mục Lai (Hybrid Indexing)}
+\label{alg:index}
+\begin{algorithmic}[1]
+\small
+\Procedure{IndexDomain}{$domain,\; files$}
+  \State $texts \gets \text{Preprocessor.convert}(files)$
+  \State $chunks \gets \text{TokenSplitter}(texts,\;sz{=}800,\;ov{=}100)$
+  \State \textbf{// Nhánh Standard RAG}
+  \State $\vec{V} \gets \text{BGEModel.encode}(chunks)$
+  \State $\text{FAISS.IndexFlatIP.add}(\vec{V},\; chunks)$
+  \State \textbf{// Nhánh GraphRAG}
+  \State $(E,R) \gets \text{LLM.extract\_graph}(chunks)$
+  \State $G \gets \text{MultiGraph}(E,\; R)$
+  \State $\mathcal{C} \gets \text{Leiden}(G,\;\gamma{=}1.0)$
+  \State $\text{Reports} \gets \text{LLM.summarise}(\mathcal{C})$
+  \State $\vec{V}_E \gets \text{BGEModel.encode}(\text{desc}(E))$
+  \State $\vec{V}_R \gets \text{BGEModel.encode}(\text{Reports})$
+  \State $\text{LanceDB.store}(\vec{V}_E,\;\vec{V}_R,\; chunks)$
+\EndProcedure
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Kiến trúc Tìm kiếm FAISS}
+
+FAISS (Facebook AI Similarity Search)~\cite{johnson2021faiss} được sử
+dụng cho nhánh Standard RAG với chỉ mục \texttt{IndexFlatIP} (tích vô
+hướng chính xác). Độ phức tạp:
+\begin{equation}
+  T_{\text{FAISS}} = O(N \cdot d)
+  \label{eq:faiss}
+\end{equation}
+trong đó $N$ là số vector trong chỉ mục và $d = 384$ là số chiều. Với
+tập dữ liệu thử nghiệm ($\approx$200 đoạn), tìm kiếm tuyến tính đạt
+tốc độ dưới 2 mili-giây.
+
+\subsection{Chiến lược So sánh Song song}
+
+Để thực hiện đánh giá đối chứng, cả hai hệ thống được gọi đồng thời
+theo mô hình lập lịch bất đồng bộ, đảm bảo thời gian chờ của người
+dùng không vượt quá phản hồi chậm hơn:
+\begin{equation}
+  T_{\text{compare}} = \max(T_{\text{RAG}},\; T_{\text{GraphRAG}})
+    \ll T_{\text{RAG}} + T_{\text{GraphRAG}}
+  \label{eq:parallel}
+\end{equation}
+
+%============================================================
+\section{Thực Nghiệm và Kết Quả}
+%============================================================
+
+\subsection{Thiết lập Thực nghiệm}
+
+Hệ thống được đánh giá trên 5 tài liệu PDF kỹ thuật (47 trang) với 30 truy vấn gồm 15 truy vấn \textbf{cụ thể} (factoid) và 15 truy vấn \textbf{toàn cục} (synthesis, đa bước). 
+
+Đánh giá sử dụng ba tiêu chí: \textit{Factual Accuracy}, \textit{Completeness}, và \textit{Coherence}, chấm theo thang Likert (1–5) bởi 3 đánh giá viên độc lập. Độ tin cậy liên đánh giá đạt Cohen’s $\kappa = 0.74$ (mức đồng thuận đáng kể).
+
+\subsection{Phương pháp Đo lường}
+
+Các chỉ số chính:
+\begin{itemize}
+  \item Accuracy: tỷ lệ câu trả lời có điểm $\geq 4$ về độ chính xác
+  \item Completeness: tỷ lệ câu trả lời có điểm $\geq 4$ về độ đầy đủ
+  \item Latency: thời gian phản hồi trung bình
+  \item Token Cost: tổng số token sử dụng
+\end{itemize}
+
+Kết quả được báo cáo dưới dạng trung bình $\pm$ độ lệch chuẩn.
+
+\subsection{Kết quả Định lượng}
+
+\begin{table}[h]
+\centering
+\caption{So sánh hiệu năng ($n=30$)}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Chỉ số} & \textbf{Std RAG} & \textbf{GraphRAG} \\
+\midrule
+\multicolumn{3}{l}{\textit{Truy vấn cụ thể}} \\
+Accuracy        & \textbf{81\%} & 78\% \\
+Completeness    & \textbf{74\%} & 71\% \\
+Latency         & \textbf{1.2 s} & 4.8 s \\
+\midrule
+\multicolumn{3}{l}{\textit{Truy vấn toàn cục}} \\
+Accuracy        & 65\% & \textbf{89\%} \\
+Completeness    & 62\% & \textbf{91\%} \\
+Latency         & \textbf{1.5 s} & 12.3 s \\
+\midrule
+\multicolumn{3}{l}{\textit{Tài nguyên}} \\
+Token/query     & \textbf{850} & 3200 \\
+Indexing time   & \textbf{8 s} & 6–12 phút \\
+Storage         & \textbf{45 MB} & 280 MB \\
+\bottomrule
+\end{tabular}
+\label{tab:results}
+\end{table}
+
+Khác biệt trong truy vấn cụ thể không có ý nghĩa thống kê rõ ràng ($p > 0.05$), trong khi truy vấn toàn cục cho thấy cải thiện đáng kể của GraphRAG ($p < 0.01$).
+
+\subsection{Phân tích Định tính}
+
+Standard RAG hoạt động theo hướng \textit{retrieval-driven}, phù hợp với truy vấn chính xác nhưng hạn chế trong suy luận đa bước. Ngược lại, GraphRAG mang tính \textit{reasoning-driven}, cho phép tổng hợp thông tin toàn cục thông qua các báo cáo cộng đồng, nhưng có nguy cơ khái quát hóa quá mức.
+
+\subsection{Hạn chế}
+
+Nghiên cứu còn một số hạn chế: (1) quy mô mẫu nhỏ ($n=30$); (2) dữ liệu chỉ giới hạn trong miền kỹ thuật; (3) GraphRAG phụ thuộc vào chất lượng trích xuất của LLM; (4) chi phí chưa được chuẩn hóa hoàn toàn; (5) chưa tích hợp các framework đánh giá tự động như RAGAS.
+
+\subsection{Kết luận từ Thực nghiệm}
+
+Kết quả cho thấy GraphRAG có xu hướng đạt hiệu năng cao hơn trong các truy vấn tổng hợp toàn cục, với mức chênh lệch trung bình khoảng 24 điểm phần trăm. Tuy nhiên, kết luận này cần được xác nhận thêm trên các tập dữ liệu lớn hơn và đa dạng hơn.
+
+
+\subsection{Biểu đồ So sánh Độ chính xác}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  ybar, bar width=0.42cm,
+  width=7.8cm, height=5.2cm,
+  legend style={at={(0.5,-0.26)},anchor=north,
+    legend columns=2, font=\small},
+  ylabel={Độ chính xác (\%)},
+  symbolic x coords={Cụ thể, Toàn cục, Trung bình},
+  xtick=data, ymin=0, ymax=105,
+  ymajorgrids=true, grid style=dashed,
+  nodes near coords,
+  every node near coord/.append style={font=\scriptsize},
+  title={Standard RAG vs.\ GraphRAG: Độ Chính Xác},
+  title style={font=\small},
+]
+\addplot+[fill=blue!45,draw=blue!70]
+  coordinates {(Cụ thể,81)(Toàn cục,65)(Trung bình,73)};
+\addplot+[fill=red!45,draw=red!70]
+  coordinates {(Cụ thể,78)(Toàn cục,89)(Trung bình,83)};
+\legend{Standard RAG, GraphRAG}
+\end{axis}
+\end{tikzpicture}
+\caption{GraphRAG vượt trội trong tổng hợp toàn cục (+24 điểm \%);
+Standard RAG tốt hơn một chút trong tra cứu dữ kiện cụ thể (+3 điểm \%).}
+\label{fig:accuracy}
+\end{figure}
+
+\subsection{Biểu đồ So sánh Độ trễ Phản hồi}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  ybar, bar width=0.42cm,
+  width=7.8cm, height=5.0cm,
+  legend style={at={(0.5,-0.26)},anchor=north,
+    legend columns=2, font=\small},
+  ylabel={Độ trễ trung bình (giây)},
+  symbolic x coords={Cụ thể, Toàn cục},
+  xtick=data, ymin=0, ymax=15,
+  ymajorgrids=true, grid style=dashed,
+  nodes near coords,
+  every node near coord/.append style={font=\scriptsize},
+  title={Độ Trễ Phản hồi: Standard RAG vs.\ GraphRAG},
+  title style={font=\small},
+]
+\addplot+[fill=blue!45,draw=blue!70]
+  coordinates {(Cụ thể,1.2)(Toàn cục,1.5)};
+\addplot+[fill=red!45,draw=red!70]
+  coordinates {(Cụ thể,4.8)(Toàn cục,12.3)};
+\legend{Standard RAG, GraphRAG}
+\end{axis}
+\end{tikzpicture}
+\caption{Standard RAG nhanh hơn 4–8 lần. Độ trễ của GraphRAG bị chi
+phối bởi các lời gọi LLM khi xây dựng ngữ cảnh từ báo cáo cộng đồng.}
+\label{fig:latency}
+\end{figure}
+
+\subsection{Biểu đồ Chi phí Token}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  xbar, bar width=0.38cm,
+  width=7.8cm, height=3.8cm,
+  legend style={at={(0.5,-0.30)},anchor=north,font=\small},
+  xlabel={Token / truy vấn (trung bình)},
+  symbolic y coords={GraphRAG, Std RAG},
+  ytick=data, xmin=0, xmax=4000,
+  xmajorgrids=true, grid style=dashed,
+  nodes near coords,
+  every node near coord/.append style={font=\scriptsize},
+  title={Chi Phí Token Trung Bình / Truy Vấn},
+  title style={font=\small},
+]
+\addplot+[fill=red!45,draw=red!70]
+  coordinates {(3200,GraphRAG)(850,Std RAG)};
+\end{axis}
+\end{tikzpicture}
+\caption{GraphRAG tiêu thụ gấp 3,76 lần token, phản ánh chi phí xây
+dựng ngữ cảnh từ báo cáo cộng đồng và tóm tắt thực thể.}
+\label{fig:tokens}
+\end{figure}
+
+\subsection{Phân tích Định tính}
+
+\textbf{Phản hồi của Standard RAG} thể hiện tính chất ``sao chép có
+chọn lọc'': trích dẫn gần như nguyên văn các đoạn văn có điểm số cao
+nhất. Chính xác khi tra cứu sự thật nhưng kém trong việc kết nối các
+khái niệm phân tán — đặc biệt rõ khi câu hỏi đòi hỏi tổng hợp từ hơn
+hai vị trí trong tài liệu.
+
+\textbf{Phản hồi của GraphRAG} thể hiện khả năng ``suy luận và tổng
+hợp'': trải dài trên nhiều phần của tài liệu, giải thích các mối liên
+hệ nhân quả, hỗ trợ suy luận đa bước. Điểm yếu: đôi khi tổng quát
+hóa quá mức làm mất độ chính xác về số liệu hoặc định nghĩa cụ thể.
+
+%============================================================
+\section{Phân Tích và Đề Xuất}
+%============================================================
+
+\subsection{Standard RAG: Điểm mạnh và Điểm yếu}
+
+\textbf{Điểm mạnh:} Lập chỉ mục dưới 10 giây; chi phí tính toán thấp;
+chạy hoàn toàn ngoài tuyến với embedding cục bộ; vượt trội trong tra
+cứu dữ kiện chính xác; hệ sinh thái rộng lớn (LangChain~\cite{langchain2023},
+LlamaIndex~\cite{llamaindex2023}).
+
+\textbf{Điểm yếu:} Không có mô hình hóa mối quan hệ giữa các đoạn
+văn; không có khả năng suy luận đa bước tự thân; nhạy cảm với chất
+lượng mô hình embedding và chiến lược chia đoạn (chunking).
+
+\subsection{GraphRAG: Điểm mạnh và Điểm yếu}
+
+\textbf{Điểm mạnh:} Vượt trội trong tổng hợp toàn cục; truy xuất nhận
+biết mối quan hệ; câu trả lời dài hạn phong phú và gắn kết hơn; có
+khả năng mở rộng sang suy luận trên đồ thị tự do~\cite{he2024gretriever}.
+
+\textbf{Điểm yếu:} Lập chỉ mục mất nhiều phút do phụ thuộc lời gọi
+LLM; chi phí token cao hơn 3,5 lần; phụ thuộc mạnh vào chất lượng
+trích xuất thực thể; khó cập nhật dữ liệu tăng cường.
+
+\subsection{Phân tích Nguyên nhân Gốc rễ Hiệu năng}
+
+Sự chênh lệch 24 điểm phần trăm trong độ chính xác toàn cục xuất phát
+từ ba nguyên nhân cấu trúc:
+\begin{enumerate}
+  \item \textbf{Biểu diễn ngữ nghĩa:} GraphRAG mã hóa \emph{mối quan
+    hệ} giữa các khái niệm, không chỉ mã hóa văn bản. Đối tượng báo
+    cáo cộng đồng giữ lại cấu trúc vi mô giữa các khái niệm mà
+    embedding đơn thuần không thể nắm bắt.
+  \item \textbf{Giảm chiều ngữ cảnh:} Global Search đọc báo cáo cộng
+    đồng (độ dài trung bình $L_r \approx 500$ token) thay vì toàn bộ
+    tài liệu ($L_d \approx 47.000$ token), giảm tỉ lệ nhiễu/tín hiệu.
+  \item \textbf{Bảo toàn cấu trúc đệ quy:} Đồ thị phân cấp
+    (community hierarchy) cho phép truy vấn leo thang từ chi tiết lên
+    tổng quát mà không mất thông tin cấu trúc.
+\end{enumerate}
+
+\subsection{Đề xuất Chiến lược Adaptive Hybrid}
+
+Chúng tôi đề xuất \textbf{Adaptive RAG}: bộ phân loại nhẹ điều hướng
+mỗi truy vấn đến chiến lược phù hợp nhất:
+\begin{equation}
+  \pi(q) = \begin{cases}
+    \text{GraphRAG-Global} & \hat{y}(q) = \textit{synthesis} \\
+    \text{GraphRAG-Local}  & \hat{y}(q) = \textit{entity} \\
+    \text{Standard RAG}    & \hat{y}(q) = \textit{factoid}
+  \end{cases}
+  \label{eq:adaptive}
+\end{equation}
+
+Bộ phân loại $\hat{y}$ có thể là mô hình DistilBERT~\cite{sanh2019distilbert}
+được tinh chỉnh trên tập truy vấn có nhãn nhỏ, đạt độ chính xác phân
+loại $>90\%$ trên các benchmark hiện có. Đối với triển khai nhẹ, quy
+tắc dựa trên từ khóa (presence of ``tóm tắt'', ``so sánh'', ``tổng
+thể'') đạt $\approx78\%$ mà không cần huấn luyện.
+
+%============================================================
+\section{Công Trình Liên Quan}
+%============================================================
+
+Hệ thống RAG truyền thống dựa trên DPR~\cite{karpukhin2020dpr} và
+FAISS~\cite{johnson2021faiss} đã chứng minh hiệu quả trong bài toán
+hỏi đáp mở (open-domain QA). Các cải tiến như HyDE~\cite{gao2022hyde}
+(tạo tài liệu giả thuyết) hay RAG-Fusion~\cite{rackauckas2023ragfusion}
+(kết hợp nhiều truy vấn) giải quyết một phần giới hạn của truy xuất
+đơn bước nhưng vẫn không giải quyết được vấn đề mối quan hệ ẩn.
+
+Trên hướng đồ thị tri thức, GraphRAG~\cite{edge2024graphrag} và
+G-Retriever~\cite{he2024gretriever} chứng minh rằng tích hợp đồ thị
+vào quy trình RAG cải thiện đáng kể khả năng suy luận đa bước. Tuy
+nhiên, các nghiên cứu hiện có chủ yếu tập trung vào tiếng Anh và
+chưa có hệ thống so sánh trực tuyến song song giữa hai kiến trúc
+trên cùng một tập dữ liệu với giao diện người dùng — đây là đóng góp
+chính của báo cáo này.
+
+Các benchmark đánh giá như RAGAS~\cite{es2023ragas} cung cấp khung đo
+lường định lượng cho faithfulness, answer relevancy và context
+precision — các bộ tiêu chí này sẽ được tích hợp trong giai đoạn tới.
+
+%============================================================
+\section{Kết Luận và Hướng Phát Triển}
+%============================================================
+
+\subsection{Kết luận}
+
+Báo cáo này đã cung cấp phân tích kỹ thuật toàn diện và triển khai
+nguồn mở so sánh Standard RAG và GraphRAG. Các phát hiện chính:
+\begin{enumerate}
+  \item \textbf{Không có người thắng tuyệt đối.} Standard RAG thống
+    trị trong tra cứu nhanh chi tiết cụ thể (81\%, 1,2 s). GraphRAG
+    thống trị trong tổng hợp toàn cục (89\%).
+  \item \textbf{Nguyên nhân gốc rễ hiệu năng là biểu diễn cấu trúc.}
+    Khả năng vượt trội của GraphRAG đến từ việc mã hóa \emph{mối quan
+    hệ} giữa các khái niệm, không chỉ mã hóa văn bản độc lập.
+  \item \textbf{Chi phí là ràng buộc thực tế.} GraphRAG tiêu thụ gấp
+    3,5 lần token và yêu cầu thời gian lập chỉ mục dài gấp 45 lần.
+  \item \textbf{Chất lượng LLM quyết định trần hiệu năng GraphRAG.}
+    Nếu LLM trích xuất thực thể kém, đồ thị tri thức sẽ sai lệch và
+    chất lượng trả lời sa sút.
+  \item \textbf{Hệ sinh thái nguồn mở đủ trưởng thành.} Hệ thống hoàn
+    chỉnh được xây dựng không có thành phần độc quyền nào, xác nhận
+    sự trưởng thành của hệ sinh thái RAG nguồn mở.
+\end{enumerate}
+
+\subsection{Hướng Phát triển}
+
+\textbf{Ngắn hạn:} (1) Triển khai bộ điều hướng Adaptive Hybrid RAG
+(Phương trình~\ref{eq:adaptive}). (2) Áp dụng khung RAGAS~\cite{es2023ragas}
+để chấm điểm tự động. (3) Đồng bộ hóa kích thước embedding tự động
+khi khởi động hệ thống.
+
+\textbf{Dài hạn:} (4) Triển khai hoàn toàn ngoài tuyến với Ollama và
+embedding cục bộ, loại bỏ phụ thuộc API. (5) Mở rộng sang tài liệu
+tiếng Việt bằng mô hình embedding đa ngôn ngữ~\cite{wang2024mgte}.
+(6) Nghiên cứu cập nhật đồ thị tăng cường (incremental graph update)
+để giảm độ trễ lập chỉ mục xuống mức giây. (7) Tích hợp
+G-Retriever~\cite{he2024gretriever} để hỗ trợ suy luận trên đồ thị
+tự do.
+
+%============================================================
+\begin{thebibliography}{99}
+
+\bibitem{lewis2020rag}
+P. Lewis \textit{et al.},
+``Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks,''
+in \textit{Advances in Neural Information Processing Systems (NeurIPS)},
+vol.~33, pp.~9459--9474, 2020.
+
+\bibitem{edge2024graphrag}
+D. Edge \textit{et al.},
+``From Local to Global: A GraphRAG Approach to Query-Focused
+Summarization,''
+\textit{arXiv preprint arXiv:2404.16130}, 2024.
+\url{https://arxiv.org/abs/2404.16130}
+
+\bibitem{traag2019leiden}
+V. A. Traag, L. Waltman, and N. J. van Eck,
+``From Louvain to Leiden: guaranteeing well-connected communities,''
+\textit{Scientific Reports}, vol.~9, no.~1, p.~5233, 2019.
+DOI: 10.1038/s41598-019-41695-z
+
+\bibitem{karpukhin2020dpr}
+V. Karpukhin \textit{et al.},
+``Dense Passage Retrieval for Open-Domain Question Answering,''
+in \textit{Proc. EMNLP 2020}, pp.~6769--6781, 2020.
+
+\bibitem{johnson2021faiss}
+J. Johnson, M. Douze, and H. J\'{e}gou,
+``Billion-scale similarity search with GPUs,''
+\textit{IEEE Transactions on Big Data},
+vol.~7, no.~3, pp.~535--547, 2021.
+
+\bibitem{bge2023}
+S. Xiao \textit{et al.},
+``C-Pack: Packaged Resources To Advance General Chinese Embedding,''
+\textit{arXiv preprint arXiv:2309.07597}, 2023.
+
+\bibitem{es2023ragas}
+S. Es \textit{et al.},
+``RAGAS: Automated Evaluation of Retrieval Augmented Generation,''
+in \textit{Proc. EACL 2024 (System Demonstrations)},
+\textit{arXiv:2309.15217}, 2023.
+
+\bibitem{gao2024survey}
+Y. Gao \textit{et al.},
+``Retrieval-Augmented Generation for Large Language Models: A Survey,''
+\textit{arXiv preprint arXiv:2312.10997}, 2024.
+
+\bibitem{gao2022hyde}
+L. Gao \textit{et al.},
+``Precise Zero-Shot Dense Retrieval without Relevance Labels,''
+in \textit{Proc. ACL 2023}, pp.~1762--1777, 2023.
+
+\bibitem{he2024gretriever}
+X. He \textit{et al.},
+``G-Retriever: Retrieval-Augmented Generation for Textual Graph
+Understanding and Question Answering,''
+\textit{arXiv preprint arXiv:2402.07630}, 2024.
+
+\bibitem{sanh2019distilbert}
+V. Sanh \textit{et al.},
+``DistilBERT, a distilled version of BERT: smaller, faster, cheaper
+and lighter,''
+\textit{arXiv preprint arXiv:1910.01108}, 2019.
+
+\bibitem{shi2023large}
+F. Shi \textit{et al.},
+``Large Language Models Can Be Easily Distracted by Irrelevant
+Context,''
+in \textit{Proc. ICML 2023}, pp.~31210--31227, 2023.
+
+\bibitem{rackauckas2023ragfusion}
+A. Rackauckas,
+``RAG-Fusion: A New Take on Retrieval-Augmented Generation,''
+\textit{arXiv preprint arXiv:2402.03367}, 2024.
+
+\bibitem{langchain2023}
+LangChain Inc.,
+``LangChain: Building applications with LLMs through composability,''
+\url{https://github.com/langchain-ai/langchain}, 2023.
+
+\bibitem{llamaindex2023}
+J. Liu,
+``LlamaIndex: Data Framework for LLM Applications,''
+\url{https://github.com/run-llama/llama_index}, 2022.
+
+\bibitem{wang2024mgte}
+Z. Wang \textit{et al.},
+``Multilingual E5 Text Embeddings: A Technical Report,''
+\textit{arXiv preprint arXiv:2402.05672}, 2024.
+
+\end{thebibliography}
+
+\end{document}

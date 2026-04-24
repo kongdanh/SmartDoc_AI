@@ -11,7 +11,7 @@ import asyncio
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-import pandas as pd
+
 from source.config import settings
 
 logger = logging.getLogger(__name__)
@@ -71,10 +71,88 @@ async def _run_graphrag_query(
             "error": f"Domain '{domain}' is not ready. Please index it first.",
         }
 
-    # Always use the CLI-based query. 
-    # The Python API requires manual loading of parquet files into pandas DataFrames,
-    # which is brittle across different graphrag versions.
-    return await _run_graphrag_query_cli(domain, query, method, community_level, response_type)
+    domain_root = _get_domain_root(domain)
+
+    try:
+        # Use graphrag API for querying
+        from graphrag.api.query import global_search, local_search, drift_search
+        from graphrag.config.load_config import load_config
+        from graphrag.query.indexer_adapters import (
+            read_indexer_entities,
+            read_indexer_relationships,
+            read_indexer_reports,
+            read_indexer_text_units,
+            read_indexer_covariates
+        )
+
+        # Load config
+        config = load_config(domain_root)
+
+        if method == "global":
+            result = await global_search(
+                config=config,
+                nodes=None,
+                entities=None,
+                community_reports=None,
+                text_units=None,
+                relationships=None,
+                covariates=None,
+                community_level=community_level,
+                response_type=response_type,
+                query=query,
+            )
+        elif method == "drift":
+            result = await drift_search(
+                config=config,
+                nodes=None,
+                entities=None,
+                community_reports=None,
+                text_units=None,
+                relationships=None,
+                community_level=community_level,
+                query=query,
+            )
+        else:  # local
+            result = await local_search(
+                config=config,
+                nodes=None,
+                entities=None,
+                community_reports=None,
+                text_units=None,
+                relationships=None,
+                covariates=None,
+                community_level=community_level,
+                response_type=response_type,
+                query=query,
+            )
+
+        response_text = ""
+        if hasattr(result, "response"):
+            response_text = str(result.response)
+        elif isinstance(result, dict):
+            response_text = str(result.get("response", result))
+        elif isinstance(result, tuple) and len(result) > 0:
+            response_text = str(result[0])
+        else:
+            response_text = str(result)
+
+        return {
+            "response": response_text,
+            "method": method,
+        }
+
+    except ImportError as e:
+        logger.error("GraphRAG import error: %s", e)
+        # Fallback: try CLI-based query
+        return await _run_graphrag_query_cli(domain, query, method, community_level, response_type)
+
+    except Exception as e:
+        logger.exception("GraphRAG query failed for domain '%s'", domain)
+        return {
+            "response": "",
+            "method": method,
+            "error": str(e),
+        }
 
 
 async def _run_graphrag_query_cli(
@@ -89,59 +167,31 @@ async def _run_graphrag_query_cli(
 
     domain_root = _get_domain_root(domain)
 
-    # Force using the .venv python executable
-    import os
-    venv_python = os.path.join(str(settings.data_path.parent), ".venv", "Scripts", "python.exe")
-    if not os.path.exists(venv_python):
-        venv_python = sys.executable
-
     cmd = [
-        venv_python, "-m", "graphrag", "query",
+        sys.executable, "-m", "graphrag", "query",
         "--root", str(domain_root),
         "--method", method,
+        "--query", query,
         "--community-level", str(community_level),
-        query,
     ]
 
     try:
-        import os
-        import subprocess
-        env = os.environ.copy()
-        env["PYTHONIOENCODING"] = "utf-8"
-        env["PYTHONUTF8"] = "1"
-        
-        def run_cli():
-            return subprocess.run(
-                cmd,
-                capture_output=True,
-                env=env,
-                text=False
-            )
-            
-        process = await asyncio.to_thread(run_cli)
-        
-        # DEBUG
-        with open("debug_cli.log", "w", encoding="utf-8") as f:
-            f.write(f"CMD: {cmd}\n")
-            f.write(f"RC: {process.returncode}\n")
-            f.write(f"STDOUT: {process.stdout.decode('utf-8', 'replace')}\n")
-            f.write(f"STDERR: {process.stderr.decode('utf-8', 'replace')}\n")
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await process.communicate()
 
         if process.returncode == 0:
-            response_text = process.stdout.decode("utf-8", errors="replace").strip()
+            response_text = stdout.decode("utf-8", errors="replace").strip()
             return {"response": response_text, "method": method}
         else:
-            error_msg = process.stderr.decode("utf-8", errors="replace")[-300:]
-            # If error_msg is somehow empty, provide a fallback so it doesn't get silenced
-            if not error_msg.strip():
-                error_msg = f"GraphRAG CLI failed with code {process.returncode} but no error output."
+            error_msg = stderr.decode("utf-8", errors="replace")[-300:]
             return {"response": "", "method": method, "error": error_msg}
 
     except Exception as e:
-        error_str = str(e)
-        if not error_str:
-            error_str = repr(e)
-        return {"response": "", "method": method, "error": error_str}
+        return {"response": "", "method": method, "error": str(e)}
 
 
 # ── Public Query Functions ──────────────────────────────────────
@@ -250,6 +300,7 @@ async def query_direct(
             df = pd.read_parquet(entity_file)
             query_lower = query.lower()
 
+            # Filter entities matching the query
             if "title" in df.columns:
                 mask = df["title"].str.lower().str.contains(query_lower, na=False)
                 if "description" in df.columns:
@@ -347,6 +398,7 @@ async def load_graph(domain: str) -> Dict[str, Any]:
         if entity_file and entity_file.exists():
             df = pd.read_parquet(entity_file)
 
+            # Count relationships per entity (degree)
             degree_map: Dict[str, int] = {}
             if rel_file and rel_file.exists():
                 rel_df = pd.read_parquet(rel_file)
@@ -382,6 +434,7 @@ async def load_graph(domain: str) -> Dict[str, Any]:
                         "weight": float(row.get("weight", 1.0)) if "weight" in row else 1.0,
                     })
 
+        # Count text units
         for search_dir in [artifacts_dir, output_dir]:
             if not search_dir.exists():
                 continue
