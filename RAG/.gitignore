@@ -1,0 +1,25 @@
+# Environment variables
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environment
+venv/
+.env/
+
+# Vector database
+vector_store/
+
+# Data files
+data/raw/
+data/processed/
+# Logs
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+node_modules
+node_modules

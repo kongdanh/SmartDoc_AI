@@ -1,0 +1,14 @@
+google-genai
+pypdf
+nltk
+tiktoken
+chromadb
+python-dotenv
+tqdm
+fastapi
+uvicorn
+scikit-learn
+numpy
+python-multipart
+pydantic
+pymupdf
