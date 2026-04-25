@@ -35,19 +35,17 @@ _DB_DIR = _ROOT / "db" / "standard_rag_chroma"
 _embedder_instance = None
 
 
-from langchain_openai import OpenAIEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 
-class OpenRouterEmbedder:
-    """Embedding using OpenRouter API."""
+class LocalHuggingFaceEmbedder:
+    """Embedding using local HuggingFace models."""
 
     def __init__(self, model_name=None):
         if model_name is None:
             model_name = settings.embedding_model
         
-        self.embeddings = OpenAIEmbeddings(
-            model=model_name,
-            api_key=settings.llm_api_key,
-            base_url=settings.llm_base_url,
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name=model_name,
         )
 
     def embed_text(self, text: str) -> List[float]:
@@ -63,10 +61,10 @@ class OpenRouterEmbedder:
         return self.embeddings.embed_documents(texts)
 
 
-def _get_embedder() -> OpenRouterEmbedder:
+def _get_embedder() -> LocalHuggingFaceEmbedder:
     global _embedder_instance
     if _embedder_instance is None:
-        _embedder_instance = OpenRouterEmbedder()
+        _embedder_instance = LocalHuggingFaceEmbedder()
     return _embedder_instance
 
 

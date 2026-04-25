@@ -12,9 +12,41 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import pandas as pd
+from graphrag.config.load_config import load_config
+from graphrag.api import local_search, global_search, drift_search
+
 from source.config import settings
 
 logger = logging.getLogger(__name__)
+
+_engine_cache = {}
+
+def _load_domain_data(domain: str) -> dict:
+    """Load GraphRAG configuration and dataframes into memory."""
+    if domain in _engine_cache:
+        return _engine_cache[domain]
+        
+    domain_root = _get_domain_root(domain)
+    output_dir = domain_root / "output" / "artifacts"
+    if not output_dir.exists():
+        output_dir = domain_root / "output"
+        
+    config = load_config(domain_root)
+    
+    def _read_pq(name):
+        p = output_dir / f"{name}.parquet"
+        return pd.read_parquet(p) if p.exists() else None
+        
+    data = {
+        "config": config,
+        "entities": _read_pq("entities"),
+        "communities": _read_pq("communities"),
+        "community_reports": _read_pq("community_reports"),
+        "text_units": _read_pq("text_units"),
+        "relationships": _read_pq("relationships"),
+    }
+    _engine_cache[domain] = data
+    return data
 
 
 def get_available_domains() -> List[str]:
@@ -60,9 +92,7 @@ async def _run_graphrag_query(
     **kwargs,
 ) -> Dict[str, Any]:
     """
-    Internal: Run a GraphRAG query using the library API.
-
-    Returns dict with 'response', 'method', and optionally 'error'.
+    Run a GraphRAG query using the native Python API with in-memory cache.
     """
     if not is_domain_ready(domain):
         return {
@@ -71,66 +101,54 @@ async def _run_graphrag_query(
             "error": f"Domain '{domain}' is not ready. Please index it first.",
         }
 
-    return await _run_graphrag_query_cli(domain, query, method, community_level, response_type)
-
-
-async def _run_graphrag_query_cli(
-    domain: str,
-    query: str,
-    method: str = "local",
-    community_level: int = 2,
-    response_type: str = "Direct Answer",
-) -> Dict[str, Any]:
-    """Fallback: run GraphRAG query via CLI subprocess."""
-    import sys
-
-    domain_root = _get_domain_root(domain)
-
-    # Force using the .venv python executable
-    import os
-    venv_python = os.path.join(str(settings.data_path.parent), ".venv", "Scripts", "python.exe")
-    if not os.path.exists(venv_python):
-        venv_python = sys.executable
-
-    cmd = [
-        venv_python, "-m", "graphrag", "query",
-        "--root", str(domain_root),
-        "--method", method,
-        "--community-level", str(community_level),
-        "--response-type", response_type, # Ép CLI tuân thủ Response Type
-        query,
-    ]
-
     try:
-        import subprocess
-        env = os.environ.copy()
-        env["PYTHONIOENCODING"] = "utf-8"
-        env["PYTHONUTF8"] = "1"
+        # Load data in a thread to not block the event loop with pandas I/O
+        data = await asyncio.to_thread(_load_domain_data, domain)
         
-        def run_cli():
-            return subprocess.run(
-                cmd,
-                capture_output=True,
-                env=env,
-                text=False
+        if method == "local":
+            result, context = await local_search(
+                config=data["config"],
+                entities=data["entities"],
+                communities=data["communities"],
+                community_reports=data["community_reports"],
+                text_units=data["text_units"],
+                relationships=data["relationships"],
+                covariates=None,
+                community_level=community_level,
+                response_type=response_type,
+                query=query,
             )
-            
-        process = await asyncio.to_thread(run_cli)
-
-        if process.returncode == 0:
-            response_text = process.stdout.decode("utf-8", errors="replace").strip()
-            return {"response": response_text, "method": method}
+        elif method == "global":
+            result, context = await global_search(
+                config=data["config"],
+                entities=data["entities"],
+                communities=data["communities"],
+                community_reports=data["community_reports"],
+                community_level=community_level,
+                dynamic_community_selection=False,
+                response_type=response_type,
+                query=query,
+            )
+        elif method == "drift":
+            result, context = await drift_search(
+                config=data["config"],
+                entities=data["entities"],
+                communities=data["communities"],
+                community_reports=data["community_reports"],
+                text_units=data["text_units"],
+                relationships=data["relationships"],
+                community_level=community_level,
+                response_type=response_type,
+                query=query,
+            )
         else:
-            error_msg = process.stderr.decode("utf-8", errors="replace")[-300:]
-            if not error_msg.strip():
-                error_msg = f"GraphRAG CLI failed with code {process.returncode} but no error output."
-            return {"response": "", "method": method, "error": error_msg}
-
+            return {"response": "", "method": method, "error": f"Unknown method: {method}"}
+            
+        return {"response": str(result), "method": method}
+        
     except Exception as e:
-        error_str = str(e)
-        if not error_str:
-            error_str = repr(e)
-        return {"response": "", "method": method, "error": error_str}
+        logger.exception("GraphRAG Native API error")
+        return {"response": "", "method": method, "error": str(e)}
 
 
 # ── Public Query Functions ──────────────────────────────────────
