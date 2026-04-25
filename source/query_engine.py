@@ -56,7 +56,7 @@ async def _run_graphrag_query(
     query: str,
     method: str = "local",
     community_level: int = 2,
-    response_type: str = "Direct Answer", # 🔴 Đã sửa thành Direct Answer
+    response_type: str = "Direct Answer",
     **kwargs,
 ) -> Dict[str, Any]:
     """
@@ -79,7 +79,7 @@ async def _run_graphrag_query_cli(
     query: str,
     method: str = "local",
     community_level: int = 2,
-    response_type: str = "Direct Answer", # 🔴 Đã sửa thành Direct Answer
+    response_type: str = "Direct Answer",
 ) -> Dict[str, Any]:
     """Fallback: run GraphRAG query via CLI subprocess."""
     import sys
@@ -140,7 +140,7 @@ async def query_local(
     domain: str,
     query: str,
     community_level: int = 2,
-    response_type: str = "Direct Answer", # 🔴 Đã sửa
+    response_type: str = "Direct Answer",
 ) -> Dict[str, Any]:
     """Local search — entity-focused, specific questions."""
     return await _run_graphrag_query(
@@ -153,7 +153,7 @@ async def query_global(
     domain: str,
     query: str,
     community_level: int = 2,
-    response_type: str = "Direct Answer", # 🔴 Đã sửa
+    response_type: str = "Direct Answer",
     dynamic_community_selection: bool = False,
 ) -> Dict[str, Any]:
     """Global search — holistic, dataset-wide questions."""
@@ -167,7 +167,7 @@ async def query_drift(
     domain: str,
     query: str,
     community_level: int = 2,
-    response_type: str = "Direct Answer", # 🔴 Đã sửa
+    response_type: str = "Direct Answer",
 ) -> Dict[str, Any]:
     """DRIFT search — starts global then drills into specifics."""
     return await _run_graphrag_query(
@@ -180,7 +180,7 @@ async def query_auto(
     domain: str,
     query: str,
     community_level: int = 2,
-    response_type: str = "Direct Answer", # 🔴 Đã sửa
+    response_type: str = "Direct Answer",
 ) -> Dict[str, Any]:
     """Auto-select query method based on query characteristics."""
     query_lower = query.lower()
@@ -206,7 +206,6 @@ async def query_direct(
     domain_root = _get_domain_root(domain)
 
     try:
-        import pandas as pd
 
         output_dir = domain_root / "output"
         artifacts_dir = output_dir / "artifacts"
@@ -305,7 +304,6 @@ async def load_graph(domain: str) -> Dict[str, Any]:
     domain_root = _get_domain_root(domain)
 
     try:
-        import pandas as pd
 
         output_dir = domain_root / "output"
         artifacts_dir = output_dir / "artifacts"

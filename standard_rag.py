@@ -14,16 +14,11 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import re
-import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from dotenv import load_dotenv
-from langchain_community.embeddings import OpenAIEmbeddings
-
-load_dotenv()
+from source.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -31,19 +26,10 @@ logger = logging.getLogger(__name__)
 
 _ROOT = Path(__file__).resolve().parent
 _DB_DIR = _ROOT / "db" / "standard_rag_chroma"
-_DATA_DIR = _ROOT / "data"
-
-# LLM settings (OpenRouter — same as GraphRAG)
-_LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
-_LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-_LLM_MODEL = os.getenv("LLM_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
-
-# Embedding (HuggingFace local)
-_EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 
 
 # ═══════════════════════════════════════════════════════════════
-# EMBEDDING (HuggingFace — local, free)
+# EMBEDDING (OpenRouter)
 # ═══════════════════════════════════════════════════════════════
 
 _embedder_instance = None
@@ -51,19 +37,17 @@ _embedder_instance = None
 
 from langchain_openai import OpenAIEmbeddings
 
-class HuggingFaceEmbedder:
-    """Embedding using OpenRouter/OpenAI."""
+class OpenRouterEmbedder:
+    """Embedding using OpenRouter API."""
 
     def __init__(self, model_name=None):
         if model_name is None:
-            model_name = _EMBEDDING_MODEL
-        api_key = os.getenv("LLM_API_KEY")
-        base_url = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
+            model_name = settings.embedding_model
         
         self.embeddings = OpenAIEmbeddings(
             model=model_name,
-            api_key=api_key,
-            base_url=base_url 
+            api_key=settings.llm_api_key,
+            base_url=settings.llm_base_url,
         )
 
     def embed_text(self, text: str) -> List[float]:
@@ -79,10 +63,10 @@ class HuggingFaceEmbedder:
         return self.embeddings.embed_documents(texts)
 
 
-def _get_embedder() -> HuggingFaceEmbedder:
+def _get_embedder() -> OpenRouterEmbedder:
     global _embedder_instance
     if _embedder_instance is None:
-        _embedder_instance = HuggingFaceEmbedder()
+        _embedder_instance = OpenRouterEmbedder()
     return _embedder_instance
 
 
@@ -331,9 +315,9 @@ def build_standard_rag_index(domain: str = "default") -> Dict[str, Any]:
     Build/rebuild the Standard RAG index for a domain.
 
     Reads all files in data/<domain>/ directory, chunks them,
-    embeds with HuggingFace, stores in ChromaDB.
+    embeds via OpenRouter, stores in ChromaDB.
     """
-    domain_data_dir = _DATA_DIR / domain
+    domain_data_dir = settings.data_path / domain
     if not domain_data_dir.exists():
         return {
             "status": "error",
@@ -435,7 +419,7 @@ def build_faiss_index(txt_file: Path) -> bool:
         if domain in ("pdf", "docx", "txt", "raw", "document"):
             # Navigate up to find the actual domain
             for parent in txt_file.parents:
-                if parent.parent == _DATA_DIR:
+                if parent.parent == settings.data_path:
                     domain = parent.name
                     break
 
@@ -542,13 +526,13 @@ Hãy trả lời:"""
 
     try:
         response = requests.post(
-            f"{_LLM_BASE_URL}/chat/completions",
+            f"{settings.llm_base_url}/chat/completions",
             headers={
-                "Authorization": f"Bearer {_LLM_API_KEY}",
+                "Authorization": f"Bearer {settings.llm_api_key}",
                 "Content-Type": "application/json",
             },
             json={
-                "model": _LLM_MODEL,
+                "model": settings.llm_model,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.3,
                 "max_tokens": 2048,

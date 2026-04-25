@@ -7,7 +7,7 @@ def fetch_graph_data(domain):
     return api_get(f"/graph/{domain}")
 
 def render_graph():
-    st.header("🕸️ Knowledge Graph Visualizer")
+    st.header("Knowledge Graph Visualizer")
     st.caption("Trực quan hóa mạng lưới thực thể và quan hệ được trích xuất bởi GraphRAG")
     st.divider()
 
@@ -58,17 +58,17 @@ def render_graph():
                         staticGraphWithDragAndDrop=False, physics=True,
                     )
 
-                    st.caption("💡 *Kéo thả chuột để di chuyển, cuộn chuột để phóng to/thu nhỏ.*")
+                    st.caption("*Kéo thả chuột để di chuyển, cuộn chuột để phóng to/thu nhỏ.*")
                     agraph(nodes=nodes, edges=edges, config=config)
                 except ImportError:
-                    st.warning("⚠️ Cần cài thư viện: `pip install streamlit-agraph`")
+                    st.warning("Cần cài thư viện: `pip install streamlit-agraph`")
 
             # Bảng chi tiết thực thể
-            with st.expander("📋 Bảng chi tiết thực thể (Entity Details)", expanded=False):
+            with st.expander("Bảng chi tiết thực thể (Entity Details)", expanded=False):
                 if data.get("nodes"):
                     df = pd.DataFrame(data["nodes"])
                     display_cols = [c for c in ["id", "type", "degree", "description"] if c in df.columns]
                     df = df[display_cols]
                     st.dataframe(df, use_container_width=True, height=400)
         else:
-            st.error("❌ Không thể tải dữ liệu. Domain này có thể chưa được Index thành công.")
+            st.error("Không thể tải dữ liệu. Domain này có thể chưa được Index thành công.")

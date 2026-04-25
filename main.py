@@ -17,13 +17,12 @@ if sys.platform == 'win32':
     except Exception as e:
         print(f"Lỗi đặt EventLoopPolicy: {e}")
 
-import asyncio
 import json
 import logging
+import re
 import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
-from pydantic import BaseModel
 from source.preprocessor import convert_pdf_to_txt, convert_docx_to_txt
 from standard_rag import build_standard_rag_index, query_standard_rag, build_faiss_index
 
@@ -39,6 +38,7 @@ from source.indexer import discover_domains, get_indexing_status, scan_and_index
 from source.chat_engine import chat_stream, sessions
 from source.models import (
     ChatRequest,
+    CompareRequest,
     DirectSearchRequest,
     DirectSearchResponse,
     DomainInfo,
@@ -275,6 +275,13 @@ async def get_chat_session(session_id: str):
     }
 
 
+@app.delete("/chat/sessions")
+async def delete_all_chat_sessions():
+    """Delete all chat sessions."""
+    count = sessions.delete_all()
+    return {"message": f"{count} sessions deleted"}
+
+
 @app.delete("/chat/sessions/{session_id}")
 async def delete_chat_session(session_id: str):
     """Delete a chat session."""
@@ -313,7 +320,7 @@ async def reindex_domain(domain: str):
     asyncio.create_task(_do_reindex())
 
     # Also rebuild Standard RAG index in background
-    asyncio.get_event_loop().run_in_executor(None, build_standard_rag_index, domain)
+    asyncio.create_task(asyncio.to_thread(build_standard_rag_index, domain))
 
     return ReindexResponse(message=f"Re-indexing started for domain '{domain}'", domains=[domain])
 
@@ -329,7 +336,7 @@ async def reindex_all():
 
     # Also rebuild Standard RAG index for all domains
     for d in domains:
-        asyncio.get_event_loop().run_in_executor(None, build_standard_rag_index, d)
+        asyncio.create_task(asyncio.to_thread(build_standard_rag_index, d))
 
     return ReindexResponse(message="Re-indexing started for all domains", domains=domains)
 
@@ -357,6 +364,8 @@ async def list_domain_files(domain: str):
 @app.post("/domains/{domain}/upload")
 async def upload_files(domain: str, files: list[UploadFile]):
     """Upload files to a domain's data directory and build Standard RAG index."""
+    if not re.match(r'^[a-zA-Z0-9_\-]+$', domain):
+        raise HTTPException(status_code=400, detail="Domain name must contain only letters, numbers, underscores, or hyphens")
     domain_data_dir = settings.data_path / domain
     domain_data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -398,7 +407,7 @@ async def upload_files(domain: str, files: list[UploadFile]):
 
     # Build Standard RAG index for this domain in background
     if uploaded > 0:
-        asyncio.get_event_loop().run_in_executor(None, build_standard_rag_index, domain)
+        asyncio.create_task(asyncio.to_thread(build_standard_rag_index, domain))
 
     return {
         "domain": domain,
@@ -456,10 +465,6 @@ async def delete_domain(domain: str):
 # --- Compare RAG Endpoint ---
 
 
-class CompareRequest(BaseModel):
-    query: str
-    domain: str = "test1"
-
 
 @app.post("/api/compare-rag")
 async def compare_rag(req: CompareRequest):
@@ -472,7 +477,7 @@ async def compare_rag(req: CompareRequest):
                 domain=req.domain, 
                 query=req.query, 
                 community_level=2, 
-                response_type="Direct Answer" # 🔴 ĐÃ SỬA THÀNH DIRECT ANSWER
+                response_type="Direct Answer"
             )
             if res.get("error"):
                 return f"GraphRAG chưa sẵn sàng cho domain '{req.domain}': {res['error']}"

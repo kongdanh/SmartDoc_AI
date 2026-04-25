@@ -35,7 +35,7 @@ class _Settings:
         self.llm_api_key: str = os.getenv("LLM_API_KEY", "")
         self.llm_rpm: int = int(os.getenv("LLM_RPM", "5"))
 
-        # ── Embedding (HuggingFace — local, free) ──────────────
+        # ── Embedding ───────────────────────────────────────
         self.embedding_provider: str = os.getenv("EMBEDDING_PROVIDER", "huggingface")
         self.embedding_model: str = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
         self.embedding_dimension: int = int(os.getenv("EMBEDDING_DIMENSION", "384"))

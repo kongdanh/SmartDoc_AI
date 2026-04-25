@@ -2,7 +2,7 @@ import streamlit as st
 from ui.api import get_domain_names, api_post
 
 def render_compare():
-    st.title("⚖️ So Sánh Standard RAG vs GraphRAG")
+    st.title("So Sánh Standard RAG vs GraphRAG")
     
     all_domain_names = get_domain_names()
 
@@ -10,7 +10,7 @@ def render_compare():
     with st.container(border=True):
         c1, c2 = st.columns([4, 1], vertical_alignment="bottom")
         c_domain = c1.selectbox("Chọn Domain", all_domain_names if all_domain_names else ["Chưa có dữ liệu"])
-        if c2.button("🔄 Lọc mới", use_container_width=True):
+        if c2.button("Lọc mới", use_container_width=True):
             st.session_state["compare_messages"] = []
             st.rerun()
 
@@ -45,10 +45,10 @@ def render_compare():
 
             with col1:
                 std_status = st.empty()
-                std_status.info("⏳ Đang quét Vector Search...")
+                std_status.info("Đang quét Vector Search...")
             with col2:
                 graph_status = st.empty()
-                graph_status.info("🧭 Đang duyệt Knowledge Graph...")
+                graph_status.info("Đang duyệt Knowledge Graph...")
 
             res = api_post("/api/compare-rag", json_data={"query": prompt.strip(), "domain": c_domain})
 
@@ -68,4 +68,5 @@ def render_compare():
                     {"role": "assistant", "standard_rag": std_ans, "graph_rag": graph_ans}
                 ])
             else:
-                st.error("❌ Lỗi gọi API.")
+                detail = f" ({res.status_code})" if res else ""
+                st.error(f"Lỗi gọi API{detail}.")

@@ -3,19 +3,16 @@ from ui.api import api_delete, get_chat_sessions_cached
 
 def render_sidebar():
     with st.sidebar:
-        st.title("🤖 SmartDoc AI")
+        st.title("SmartDoc AI")
         st.caption("Hệ thống tri thức GraphRAG")
         st.divider()
 
         st.subheader("Lịch sử Chat")
         
         # Nút xóa tất cả
-        if st.button("🗑️ Xóa toàn bộ lịch sử", type="primary", use_container_width=True):
-            sessions = get_chat_sessions_cached() # Gọi hàm cache
-            if sessions and sessions.get("sessions"):
-                for s in sessions["sessions"]:
-                    api_delete(f"/chat/sessions/{s['id']}")
-            st.cache_data.clear() # 🔴 LÀM SẠCH CACHE ĐỂ CẬP NHẬT GIAO DIỆN
+        if st.button("Xóa toàn bộ lịch sử", type="primary", use_container_width=True):
+            api_delete("/chat/sessions")
+            st.cache_data.clear() # Làm sạch cache để cập nhật giao diện
             st.rerun()
 
         st.divider()
@@ -35,7 +32,7 @@ def render_sidebar():
                         st.rerun()
                     if c2.button("Xóa", key=f"del_{sess['id']}", use_container_width=True):
                         api_delete(f"/chat/sessions/{sess['id']}")
-                        st.cache_data.clear() # 🔴 LÀM SẠCH CACHE
+                        st.cache_data.clear() # Làm sạch cache
                         st.rerun()
         else:
             st.info("Chưa có cuộc trò chuyện nào.")

@@ -16,11 +16,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
-from dotenv import load_dotenv
 
 from source.config import settings
-
-load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +114,13 @@ class SessionManager:
             key=lambda s: s.created_at,
             reverse=True,
         )
+
+    def delete_all(self) -> int:
+        """Delete all sessions and return the count of deleted sessions."""
+        count = len(self._sessions)
+        self._sessions.clear()
+        self._save_to_storage()
+        return count
 
     def notify_update(self):
         self._save_to_storage()
@@ -236,25 +240,29 @@ def _build_messages(session: ChatSession, system_prompt: str) -> List[Dict[str, 
 async def _fallback_generate(messages: List[Dict[str, str]]) -> str:
     try:
         import requests as req
-        api_key = settings.llm_api_key
-        base_url = settings.llm_base_url
-        model = settings.llm_model
 
-        response = req.post(
-            f"{base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={
-                "model": model,
-                "messages": messages,
-                "temperature": 0.7,
-                "max_tokens": 2048,
-            },
-            timeout=120,
-        )
+        def _sync_generate():
+            api_key = settings.llm_api_key
+            base_url = settings.llm_base_url
+            model = settings.llm_model
 
-        if response.status_code == 200:
-            return response.json()["choices"][0]["message"]["content"]
-        else:
-            return f"Lỗi API ({response.status_code}): {response.text[:200]}"
+            response = req.post(
+                f"{base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "temperature": 0.7,
+                    "max_tokens": 2048,
+                },
+                timeout=120,
+            )
+
+            if response.status_code == 200:
+                return response.json()["choices"][0]["message"]["content"]
+            else:
+                return f"Lỗi API ({response.status_code}): {response.text[:200]}"
+
+        return await asyncio.to_thread(_sync_generate)
     except Exception as e:
         return f"Lỗi kết nối LLM: {str(e)}"

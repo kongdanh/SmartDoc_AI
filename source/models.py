@@ -61,6 +61,11 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
 
 
+class CompareRequest(BaseModel):
+    query: str
+    domain: str
+
+
 # ── Status ──────────────────────────────────────────────────────
 
 class StatusResponse(BaseModel):

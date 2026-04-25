@@ -1,0 +1,34 @@
+\babel@toc {vietnamese}{}\relax 
+\contentsline {subsection}{\numberline {0.1}Đóng góp chính}{1}{subsection.0.1}%
+\contentsline {section}{\numberline {1}Cơ Sở Lý Thuyết}{1}{section.1}%
+\contentsline {subsection}{\numberline {1.1}Standard RAG: Mô hình Toán học và Giới hạn}{1}{subsection.1.1}%
+\contentsline {subsection}{\numberline {1.2}GraphRAG: Kiến trúc Đồ thị Tri thức}{2}{subsection.1.2}%
+\contentsline {subsection}{\numberline {1.3}Phân tích Toán học: Thuật toán Leiden}{2}{subsection.1.3}%
+\contentsline {subsection}{\numberline {1.4}Mô hình Nhúng Vector và Không gian Latent}{3}{subsection.1.4}%
+\contentsline {subsection}{\numberline {1.5}Chiến lược Truy vấn: Local và Global Search}{3}{subsection.1.5}%
+\contentsline {section}{\numberline {2}Thiết Kế và Triển Khai Hệ Thống}{4}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Kiến trúc Tổng quát}{4}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Hệ sinh thái Công nghệ Nguồn Mở}{4}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}Quy trình Lập chỉ mục Lai}{5}{subsection.2.3}%
+\contentsline {subsection}{\numberline {2.4}Kiến trúc Tìm kiếm FAISS}{5}{subsection.2.4}%
+\contentsline {subsection}{\numberline {2.5}Chiến lược So sánh Song song}{5}{subsection.2.5}%
+\contentsline {section}{\numberline {3}Thực Nghiệm và Kết Quả}{5}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Thiết lập Thực nghiệm}{5}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Phương pháp Đo lường}{6}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Kết quả Định lượng}{6}{subsection.3.3}%
+\contentsline {subsection}{\numberline {3.4}Phân tích Định tính}{6}{subsection.3.4}%
+\contentsline {subsection}{\numberline {3.5}Hạn chế}{7}{subsection.3.5}%
+\contentsline {subsection}{\numberline {3.6}Kết luận từ Thực nghiệm}{7}{subsection.3.6}%
+\contentsline {subsection}{\numberline {3.7}Biểu đồ So sánh Độ chính xác}{7}{subsection.3.7}%
+\contentsline {subsection}{\numberline {3.8}Biểu đồ So sánh Độ trễ Phản hồi}{7}{subsection.3.8}%
+\contentsline {subsection}{\numberline {3.9}Biểu đồ Chi phí Token}{7}{subsection.3.9}%
+\contentsline {subsection}{\numberline {3.10}Phân tích Định tính}{7}{subsection.3.10}%
+\contentsline {section}{\numberline {4}Phân Tích và Đề Xuất}{8}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Standard RAG: Điểm mạnh và Điểm yếu}{8}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}GraphRAG: Điểm mạnh và Điểm yếu}{8}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Phân tích Nguyên nhân Gốc rễ Hiệu năng}{8}{subsection.4.3}%
+\contentsline {subsection}{\numberline {4.4}Đề xuất Chiến lược Adaptive Hybrid}{9}{subsection.4.4}%
+\contentsline {section}{\numberline {5}Công Trình Liên Quan}{9}{section.5}%
+\contentsline {section}{\numberline {6}Kết Luận và Hướng Phát Triển}{9}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Kết luận}{9}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}Hướng Phát triển}{10}{subsection.6.2}%

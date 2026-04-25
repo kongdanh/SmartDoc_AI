@@ -3,7 +3,7 @@ import time
 from ui.api import get_domain_names, api_post
 
 def render_query():
-    st.title("🔍 Truy Vấn Nâng Cao")
+    st.title("Truy Vấn Nâng Cao")
     st.write("Sử dụng các phương pháp tìm kiếm chuyên sâu vào Graph Database.")
 
     domain_names = get_domain_names(only_ready=True)
@@ -23,7 +23,7 @@ def render_query():
             return
 
         t0 = time.time()
-        with st.status(f"🚀 Đang chạy phương pháp `{q_method}`...", expanded=True) as status:
+        with st.status(f"Đang chạy phương pháp `{q_method}`...", expanded=True) as status:
             st.write("Đang kết nối tới GraphRAG Engine...")
             endpoint = f"/query/{q_method}"
             
@@ -37,9 +37,9 @@ def render_query():
 
             if res and res.status_code == 200:
                 data = res.json()
-                status.update(label=f"✅ Truy vấn xong trong {elapsed:.1f}s", state="complete")
+                status.update(label=f"Truy vấn xong trong {elapsed:.1f}s", state="complete")
                 
-                st.subheader("📋 Kết quả phân tích")
+                st.subheader("Kết quả phân tích")
                 if q_method == "search":
                     t1, t2, t3 = st.tabs(["Thực thể", "Quan hệ", "Nguồn trích dẫn"])
                     with t1: st.json(data.get("entities", []))
@@ -48,5 +48,6 @@ def render_query():
                 else:
                     st.info(data.get("response", "Hệ thống không tìm thấy kết quả phù hợp."))
             else:
-                status.update(label="❌ Lỗi truy vấn", state="error")
-                st.error("Lỗi từ server Backend.")
+                status.update(label="Lỗi truy vấn", state="error")
+                detail = f" ({res.status_code})" if res else ""
+                st.error(f"Lỗi từ server Backend{detail}.")

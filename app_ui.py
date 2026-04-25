@@ -3,7 +3,7 @@ import streamlit as st
 # 1. Khởi tạo cấu hình trang (Chỉ dùng Native)
 st.set_page_config(
     page_title="SmartDoc AI",
-    page_icon="🤖",
+    page_icon=None,
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -12,7 +12,7 @@ st.set_page_config(
 if "page" not in st.session_state:
     st.session_state["page"] = "Chat"
 
-# 3. Import các trang (Đảm bảo bạn đã dùng bộ code các trang tôi gửi ở lần trước)
+# 3. Import các trang
 from ui.sidebar import render_sidebar
 from ui.pages.overview import render_overview
 from ui.pages.chat import render_chat
@@ -23,7 +23,7 @@ from ui.pages.compare import render_compare
 # 4. Render Sidebar
 render_sidebar()
 
-# 5. Thanh điều hướng Topbar (Dùng cột Native, nói KHÔNG với CSS)
+# 5. Thanh điều hướng Topbar (Dùng cột Native)
 pages = ["Overview", "Chat", "Query", "Knowledge Graph", "Compare RAG"]
 
 # Chia cột đều nhau cho menu
