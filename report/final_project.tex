@@ -35,6 +35,7 @@
 \usepackage{algorithm}
 \usepackage{algpseudocode}
 \usepackage{tikz}
+\usepackage{caption}
 \usetikzlibrary{shapes.geometric, arrows.meta, positioning}
 \usepackage[hidelinks]{hyperref}
 
@@ -55,7 +56,7 @@
 }
 }
 \makeatother
-
+\usepackage[section]{placeins}
 \begin{document}
 \pagenumbering{arabic}
 \fontsize{10}{12}
@@ -495,9 +496,9 @@ Storage         & \textbf{45 MB} & 280 MB \\
 
 \subsection{Chi tiết thời gian xử lý}
 
-\begin{table}[h]
-\centering
-\caption{Thời gian xử lý trung bình SmartDoc AI (ms)}
+\begin{center}
+\captionof{table}{Thời gian xử lý trung bình SmartDoc AI (ms)}
+\label{tab:breakdown}
 \begin{tabular}{@{}lcc@{}}
 \toprule
 \textbf{Giai đoạn} & \textbf{Standard RAG} & \textbf{GraphRAG} \\
@@ -509,8 +510,7 @@ Generation & 1,200 & 4,800 \\
 \textbf{Total} & \textbf{9,651} & \textbf{377,315} \\
 \bottomrule
 \end{tabular}
-\label{tab:breakdown}
-\end{table}
+\end{center}
 
 \textbf{Nhận xét:} GraphRAG tốn nhiều thời gian hơn đáng kể ở giai
 đoạn xây dựng đồ thị tri thức (processing) và embedding vector hóa
@@ -519,12 +519,10 @@ GraphRAG nhanh hơn do ngữ cảnh đầu vào có cấu trúc rõ ràng, ít n
 
 \subsection{Biểu đồ So sánh Độ chính xác}
 
-\begin{figure}[h]
-\centering
-\begin{tikzpicture}
+\noindent\begin{tikzpicture}
 \begin{axis}[
   ybar, bar width=0.42cm,
-  width=7.8cm, height=5.2cm,
+  width=\columnwidth, height=4.5cm,
   legend style={at={(0.5,-0.26)},anchor=north,
     legend columns=2, font=\small},
   ylabel={Accuracy (\%)},
@@ -543,9 +541,8 @@ GraphRAG nhanh hơn do ngữ cảnh đầu vào có cấu trúc rõ ràng, ít n
 \legend{Standard RAG, GraphRAG}
 \end{axis}
 \end{tikzpicture}
-\caption{So sánh độ chính xác giữa Standard RAG và GraphRAG}
+\captionof{figure}{So sánh độ chính xác giữa Standard RAG và GraphRAG}
 \label{fig:accuracy}
-\end{figure}
 
 \subsection{Biểu đồ So sánh Độ trễ Phản hồi}
 
