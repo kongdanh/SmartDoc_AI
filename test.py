@@ -15,12 +15,17 @@ if API_KEY == "":
 else:
     print(f"✅ Đã nạp được API Key bắt đầu bằng: {API_KEY[:15]}...")
 
-MODEL_NAME = "openai/text-embedding-3-small" 
-url = "https://openrouter.ai/api/v1/embeddings"
+# MODEL_NAME = "openai/text-embedding-3-small" 
+# url = "https://openrouter.ai/api/v1/embeddings"
+
+MODEL_NAME = "nvidia/nemotron-3-super-120b-a12b:free"
+url = "https://openrouter.ai/api/v1/chat/completions"
 
 payload = {
     "model": MODEL_NAME,
-    "input": "hello"
+    "messages": [
+        {"role": "user", "content": "What is the capital of France?"}
+    ]
 }
 
 headers = {

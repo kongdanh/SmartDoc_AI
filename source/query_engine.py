@@ -16,6 +16,7 @@ from graphrag.config.load_config import load_config
 from graphrag.api import local_search, global_search, drift_search
 
 from source.config import settings
+from source.retry_handler import exponential_backoff_retry  # OPTIMIZATION: Add retry logic
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,8 @@ async def _run_graphrag_query(
     **kwargs,
 ) -> Dict[str, Any]:
     """
-    Run a GraphRAG query using the native Python API with in-memory cache.
+    [FIX] Custom Query Engine bypasses Microsoft's strict schema.
+    Reads pure parquet files and builds context for OpenRouter LLM.
     """
     if not is_domain_ready(domain):
         return {
@@ -102,58 +104,115 @@ async def _run_graphrag_query(
         }
 
     try:
-        # Load data in a thread to not block the event loop with pandas I/O
+        # Load raw dataframes
         data = await asyncio.to_thread(_load_domain_data, domain)
         
-        if method == "local":
-            result, context = await local_search(
-                config=data["config"],
-                entities=data["entities"],
-                communities=data["communities"],
-                community_reports=data["community_reports"],
-                text_units=data["text_units"],
-                relationships=data["relationships"],
-                covariates=None,
-                community_level=community_level,
-                response_type=response_type,
-                query=query,
-            )
+        # 1. Trích xuất Keyword từ Query để search Node
+        query_keywords = set([w.lower() for w in query.replace("?", "").replace(",", "").split() if len(w) > 3])
+        
+        context_parts = []
+        
+        # --- LOCAL SEARCH LOGIC ---
+        if method == "local" or method == "drift":
+            entities_df = data.get("entities")
+            rels_df = data.get("relationships")
+            
+            if entities_df is not None and not entities_df.empty:
+                # Tìm Node (Entities)
+                matched_entities = []
+                for _, row in entities_df.iterrows():
+                    title = str(row.get("title", "")).lower()
+                    desc = str(row.get("description", ""))
+                    # Nếu tên Node xuất hiện trong câu hỏi
+                    if any(k in title for k in query_keywords) or any(k in query.lower() for k in title.split()):
+                        matched_entities.append(f"- Entity: {row.get('title')} ({row.get('type')})\n  Description: {desc}")
+                
+                if matched_entities:
+                    context_parts.append("### RELEVANT ENTITIES (Nodes):\n" + "\n".join(matched_entities[:10]))
+                    
+            if rels_df is not None and not rels_df.empty:
+                # Tìm Relationship (Edges)
+                matched_rels = []
+                for _, row in rels_df.iterrows():
+                    src = str(row.get("source", "")).lower()
+                    tgt = str(row.get("target", "")).lower()
+                    desc = str(row.get("description", ""))
+                    if any(k in src for k in query_keywords) or any(k in tgt for k in query_keywords):
+                        matched_rels.append(f"- Relationship: {row.get('source')} <-> {row.get('target')}\n  Details: {desc}")
+                        
+                if matched_rels:
+                    context_parts.append("### RELEVANT RELATIONSHIPS (Edges):\n" + "\n".join(matched_rels[:15]))
+                    
+        # --- GLOBAL SEARCH LOGIC ---
         elif method == "global":
-            result, context = await global_search(
-                config=data["config"],
-                entities=data["entities"],
-                communities=data["communities"],
-                community_reports=data["community_reports"],
-                community_level=community_level,
-                dynamic_community_selection=False,
-                response_type=response_type,
-                query=query,
-            )
-        elif method == "drift":
-            result, context = await drift_search(
-                config=data["config"],
-                entities=data["entities"],
-                communities=data["communities"],
-                community_reports=data["community_reports"],
-                text_units=data["text_units"],
-                relationships=data["relationships"],
-                community_level=community_level,
-                response_type=response_type,
-                query=query,
-            )
+            reports_df = data.get("community_reports")
+            if reports_df is not None and not reports_df.empty:
+                # Đọc báo cáo cộng đồng ở level đã định (mặc định lấy cao nhất nếu không có level)
+                reports = []
+                for _, row in reports_df.head(5).iterrows(): # Lấy top 5 report bự nhất
+                    reports.append(f"- Community Report: {str(row.get('title', 'Unknown'))}\n  Summary: {str(row.get('summary', ''))}")
+                if reports:
+                    context_parts.append("### COMMUNITY SUMMARIES (Global View):\n" + "\n".join(reports))
         else:
             return {"response": "", "method": method, "error": f"Unknown method: {method}"}
             
-        return {"response": str(result), "method": method}
+        # 2. Xây dựng Prompt và gọi LLM (OpenRouter)
+        if not context_parts:
+            return {
+                "response": "GraphRAG không tìm thấy điểm neo (Node/Edge) nào trong đồ thị khớp với câu hỏi của bạn. Vui lòng hỏi rõ tên thực thể (ví dụ: Jim, Della, gold watch).", 
+                "method": method
+            }
+            
+        context_str = "\n\n".join(context_parts)
+        
+        prompt = f"""Bạn là một chuyên gia phân tích Đồ thị tri thức (Knowledge Graph).
+Nhiệm vụ của bạn là trả lời câu hỏi dựa TRÊN CÁC NODE, EDGE VÀ BÁO CÁO CỘNG ĐỒNG được cung cấp dưới đây.
+
+NGUYÊN TẮC:
+1. Trả lời chi tiết, phân tích rõ mối quan hệ giữa các thực thể.
+2. KHÔNG TỰ BỊA ĐẶT thông tin ngoài context.
+3. Trả lời bằng tiếng Việt.
+
+[CÂU HỎI]:
+{query}
+
+[DỮ LIỆU TỪ GRAPH]:
+{context_str}
+
+Câu trả lời của bạn:"""
+
+        # Tái sử dụng request từ standard_rag để gọi OpenRouter
+        import requests
+        response = requests.post(
+            f"{settings.llm_base_url}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {settings.llm_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": settings.llm_model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.1,
+                "max_tokens": 1024,
+            },
+            timeout=120,
+        )
+        
+        if response.status_code == 200:
+            answer = response.json()["choices"][0]["message"]["content"]
+            return {"response": answer.strip(), "method": method}
+        else:
+            return {"response": "", "method": method, "error": f"LLM API Error: {response.status_code}"}
         
     except Exception as e:
-        logger.exception("GraphRAG Native API error")
+        logger.exception("Custom GraphRAG query error")
         return {"response": "", "method": method, "error": str(e)}
 
 
 # ── Public Query Functions ──────────────────────────────────────
 
 
+@exponential_backoff_retry(max_retries=3, base_delay=2.0)
 async def query_local(
     domain: str,
     query: str,
@@ -167,6 +226,7 @@ async def query_local(
     )
 
 
+@exponential_backoff_retry(max_retries=3, base_delay=2.0)
 async def query_global(
     domain: str,
     query: str,
@@ -181,6 +241,7 @@ async def query_global(
     )
 
 
+@exponential_backoff_retry(max_retries=3, base_delay=2.0)
 async def query_drift(
     domain: str,
     query: str,

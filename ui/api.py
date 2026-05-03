@@ -34,26 +34,25 @@ def api_delete(path):
     except Exception:
         return None
 
-# Cache dữ liệu trong 10 giây để tối ưu tốc độ chuyển trang
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=60)
 def get_domains():
-    """Fetch list of domains from backend."""
+    """Fetch list of domains from backend. Cached for 60 seconds."""
     data = api_get("/domains")
     if data and "domains" in data:
         return data["domains"]
     return []
 
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=300)
 def get_domain_names(only_ready=False):
-    """Get domain names, optionally only ready ones."""
+    """Get domain names, optionally only ready ones. Cached for 5 minutes."""
     domains = get_domains()
     if only_ready:
         return [d["name"] for d in domains if d.get("ready")]
     return [d["name"] for d in domains]
 
-# Cache lịch sử chat
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=20)
 def get_chat_sessions_cached():
+    """Fetch chat sessions. Cached for 20 seconds for fresh messages."""
     return api_get("/chat/sessions")
 
 def format_size(size_bytes):

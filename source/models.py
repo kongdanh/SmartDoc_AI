@@ -53,17 +53,19 @@ class DirectSearchResponse(BaseModel):
     error: Optional[str] = None
 
 
+# ── Compare ─────────────────────────────────────────────────────
+
+class CompareRequest(BaseModel):
+    domain: str
+    query: str
+
+
 # ── Chat ────────────────────────────────────────────────────────
 
 class ChatRequest(BaseModel):
     domain: str
     message: str
     session_id: Optional[str] = None
-
-
-class CompareRequest(BaseModel):
-    query: str
-    domain: str
 
 
 # ── Status ──────────────────────────────────────────────────────
