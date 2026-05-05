@@ -157,8 +157,9 @@ async def chat_stream(session: ChatSession, user_message: str) -> AsyncGenerator
     sessions.notify_update()
 
     context = await _get_context_fast(session.domain, user_message)
+    memory = _get_conversation_memory(session, max_turns=3)
 
-    system_prompt = _build_system_prompt(context)
+    system_prompt = _build_system_prompt(context, memory)
     messages = _build_messages(session, system_prompt)
 
     full_response = ""
@@ -174,7 +175,7 @@ async def chat_stream(session: ChatSession, user_message: str) -> AsyncGenerator
             "messages": messages,
             "stream": True,
             "temperature": 0.7,
-            "max_tokens": 2048,
+            "max_tokens": 4096,
         }
 
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -225,12 +226,50 @@ async def chat_stream(session: ChatSession, user_message: str) -> AsyncGenerator
         sessions.notify_update()
 # ─── Helpers ─────────────────────────────────────────────────────
 
-def _build_system_prompt(context: str) -> str:
+def _get_conversation_memory(session: ChatSession, max_turns: int = 3) -> str:
+    """Extract last N conversation turns as memory context.
+    
+    Only returns Q&A pairs that exist. If there are 2 messages (1 pair),
+    return just that. Works with any number from 1-3 pairs.
+    
+    Args:
+        session: Chat session with message history
+        max_turns: Max number of Q&A pairs to extract (default 3)
+    
+    Returns:
+        Formatted conversation memory string, or empty string if no history
+    """
+    if len(session.messages) < 2:
+        return ""
+    
+    total_pairs_available = len(session.messages) // 2
+    pairs_to_take = min(max_turns, total_pairs_available)
+    
+    if pairs_to_take == 0:
+        return ""
+    
+    messages_to_use = session.messages[-(pairs_to_take * 2):]
+    
+    memory_text = "Lịch sử cuộc trò chuyện gần nhất:\n"
+    for msg in messages_to_use:
+        if msg.role == "user":
+            memory_text += f"Người dùng: {msg.content}\n"
+        else:
+            memory_text += f"Trợ lý: {msg.content}\n"
+    
+    return memory_text
+
+
+def _build_system_prompt(context: str, memory: str = "") -> str:
     base = (
         "Bạn là SmartDoc AI — trợ lý thông minh giúp người dùng truy vấn và tìm hiểu "
         "thông tin từ các tài liệu đã được đưa vào hệ thống. "
         "Trả lời bằng tiếng Việt, rõ ràng, có cấu trúc."
     )
+    
+    if memory:
+        base += f"\n\n{memory}"
+    
     if context:
         base += (
             "\n\nDưới đây là thông tin từ Knowledge Base liên quan đến câu hỏi:\n"
@@ -268,8 +307,21 @@ async def _fallback_generate(messages: List[Dict[str, str]]) -> str:
             },
             timeout=120,
         )
+        
         if response.status_code == 200:
-            return response.json()["choices"][0]["message"]["content"]
-        return f"Lỗi API ({response.status_code}): {response.text[:200]}"
+            if not response.text:
+                logger.error("Response body is empty")
+                return "Lỗi: Phản hồi trống"
+            try:
+                data = response.json()
+                return data["choices"][0]["message"]["content"]
+            except (json.JSONDecodeError, KeyError, IndexError) as e:
+                logger.error(f"Failed to parse response: {e}, body: {response.text[:500]}")
+                return f"Lỗi parse response: {str(e)}"
+        
+        error_text = response.text[:200] if response.text else f"HTTP {response.status_code}"
+        logger.error(f"API error ({response.status_code}): {error_text}")
+        return f"Lỗi API ({response.status_code}): {error_text}"
     except Exception as e:
+        logger.exception("Fallback generate error")
         return f"Lỗi kết nối LLM: {str(e)}"

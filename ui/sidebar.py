@@ -7,9 +7,21 @@ def render_sidebar():
         st.caption("Knowledge Graph RAG System")
         st.divider()
 
-        st.subheader("Chat History")
-        
+        col_header, col_clear = st.columns([4, 2])
+        col_header.subheader("Chat History")
+
         sessions_data = get_chat_sessions_cached()
+        has_sessions = sessions_data and sessions_data.get("sessions")
+
+        if has_sessions:
+            with col_clear.popover("Xóa lịch sử", use_container_width=True):
+                st.warning("Xóa **toàn bộ** lịch sử chat?")
+                if st.button("Xác nhận xóa", type="primary", use_container_width=True):
+                    api_delete("/chat/sessions")
+                    st.session_state.pop("chat_session_id", None)
+                    st.session_state["chat_msgs"] = []
+                    st.cache_data.clear()
+                    st.rerun()
         if sessions_data and sessions_data.get("sessions"):
             for sess in sessions_data["sessions"][:15]:
                 title = sess['title'][:25] + "..." if len(sess['title']) > 25 else sess['title']

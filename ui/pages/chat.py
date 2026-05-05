@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import json
 from ui.api import get_domain_names, API_BASE
 
 def render_chat():
@@ -65,16 +66,38 @@ def render_chat():
         
         with st.spinner("Waiting for response..."):
             try:
-                res = requests.post(f"{API_BASE}/chat", json=payload, timeout=120)
+                res = requests.post(f"{API_BASE}/chat", json=payload, timeout=120, stream=True)
                 
                 if res.status_code == 200:
-                    data = res.json()
-                    answer = data.get("response") or data.get("content") or str(data)
+                    answer = ""
                     
-                    if "session_id" in data:
-                        st.session_state["chat_session_id"] = data["session_id"]
+                    for line in res.iter_lines():
+                        if not line:
+                            continue
+                        
+                        line_str = line.decode("utf-8") if isinstance(line, bytes) else line
+                        
+                        if not line_str.startswith("data: "):
+                            continue
+                        
+                        json_str = line_str[6:].strip()
+                        
+                        try:
+                            data = json.loads(json_str)
+                            
+                            if data.get("type") == "token":
+                                answer += data.get("content", "")
+                            elif data.get("type") == "start":
+                                session_id = data.get("session_id")
+                                if session_id:
+                                    st.session_state["chat_session_id"] = session_id
+                        except json.JSONDecodeError:
+                            continue
                     
-                    st.session_state["chat_msgs"].append({"role": "assistant", "content": answer})
+                    if answer:
+                        st.session_state["chat_msgs"].append({"role": "assistant", "content": answer})
+                    else:
+                        st.session_state["chat_msgs"].append({"role": "assistant", "content": "No response received"})
                 else:
                     st.session_state["chat_msgs"].append({"role": "assistant", "content": f"Error: {res.status_code}"})
             except Exception as e:
